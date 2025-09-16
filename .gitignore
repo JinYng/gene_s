@@ -35,8 +35,6 @@ yarn-error.log*
 /sample_data/output/
 /public/sample_data/output/
 
-# 可视化测试数据
-sample_data
 
 # Python
 __pycache__/
