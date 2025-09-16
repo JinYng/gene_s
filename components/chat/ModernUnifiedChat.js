@@ -82,159 +82,6 @@ const modernChatStyles = {
     }),
   },
 
-  // 输入区域样式 - ChatGPT风格
-  inputArea: {
-    padding: "20px",
-    borderTop: "1px solid #e5e7eb",
-    backgroundColor: "#ffffff",
-    position: "relative",
-  },
-
-  // 输入框容器
-  inputContainer: {
-    position: "relative",
-    background: "#ffffff",
-    borderRadius: "24px",
-    border: "1px solid #d1d5db",
-    boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
-    transition: "all 0.2s ease",
-    overflow: "hidden",
-  },
-
-  inputContainerFocused: {
-    borderColor: "#2563eb",
-    boxShadow: "0 4px 16px rgba(37, 99, 235, 0.15)",
-    transform: "translateY(-1px)",
-  },
-
-  inputContainerDragOver: {
-    borderColor: "#10b981",
-    backgroundColor: "#f0fdf4",
-    boxShadow: "0 4px 16px rgba(16, 185, 129, 0.2)",
-    animation: "dragOverlay 0.2s ease-out",
-  },
-
-  // 文件显示区域
-  filePreview: {
-    padding: "6px 12px",
-    borderBottom: "1px solid #f3f4f6",
-    background: "#f9fafb",
-  },
-
-  fileItem: {
-    display: "inline-flex",
-    alignItems: "center",
-    background: "#ffffff",
-    border: "1px solid #e5e7eb",
-    borderRadius: "12px",
-    padding: "8px 12px",
-    margin: "4px 8px 4px 0",
-    fontSize: "13px",
-    color: "#374151",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
-    transition: "all 0.2s ease",
-    animation: "fileUploadSuccess 0.4s ease-out",
-  },
-
-  fileIcon: {
-    marginRight: "8px",
-    fontSize: "16px",
-  },
-
-  removeFileButton: {
-    marginLeft: "8px",
-    background: "none",
-    border: "none",
-    color: "#9ca3af",
-    cursor: "pointer",
-    borderRadius: "50%",
-    width: "18px",
-    height: "18px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "12px",
-    transition: "all 0.2s ease",
-  },
-
-  // 输入框本体
-  textInput: {
-    width: "100%",
-    border: "none",
-    outline: "none",
-    padding: "16px 60px 16px 20px",
-    fontSize: "15px",
-    lineHeight: "1.5",
-    resize: "none",
-    minHeight: "24px",
-    maxHeight: "120px",
-    backgroundColor: "transparent",
-    color: "#374151",
-    fontFamily: "inherit",
-  },
-
-  // 发送按钮
-  sendButton: (disabled) => ({
-    position: "absolute",
-    right: "8px",
-    top: "80%",
-    transform: "translateY(-50%)",
-    width: "36px",
-    height: "36px",
-    borderRadius: "50%",
-    border: "none",
-    background: disabled
-      ? "#d1d5db"
-      : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
-    color: "#ffffff",
-    cursor: disabled ? "not-allowed" : "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "16px",
-    transition: "all 0.2s ease",
-    boxShadow: disabled ? "none" : "0 2px 8px rgba(37, 99, 235, 0.3)",
-  }),
-
-  // 附件按钮
-  attachButton: {
-    position: "absolute",
-    left: "12px",
-    top: "70%",
-    transform: "translateY(-50%)",
-    width: "32px",
-    height: "32px",
-    borderRadius: "50%",
-    border: "none",
-    background: "#f3f4f6",
-    color: "#6b7280",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "16px",
-    transition: "all 0.2s ease",
-  },
-
-  // 拖拽覆盖层
-  dragOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    background: "rgba(16, 185, 129, 0.1)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: "16px",
-    color: "#059669",
-    fontWeight: "500",
-    borderRadius: "24px",
-    animation: "dragOverlay 0.2s ease-out",
-  },
-
-  // 思考动画
   thinkingDots: {
     display: "inline-flex",
     gap: "4px",
@@ -257,23 +104,157 @@ const modernChatStyles = {
     lineHeight: "1.6",
   },
 
-  // 快捷指令
-  quickActions: {
-    display: "flex",
-    gap: "8px",
-    marginTop: "12px",
-    flexWrap: "wrap",
+  // 输入区域样式 - Google AI Studio 风格
+  inputArea: {
+    padding: "16px 16px 16px 16px",
+    borderTop: "1px solid #e5e7eb",
+    backgroundColor: "#f9fafb",
   },
 
-  quickActionButton: {
-    padding: "6px 12px",
+  // 输入框容器 - 包含文件标签和文本输入
+  inputContainer: {
+    display: "flex",
+    flexDirection: "column",
+    width: "100%",
+    backgroundColor: "#ffffff",
+    borderRadius: "28px",
+    border: "1px solid #d1d5db",
+    transition: "border-color 0.2s ease, box-shadow 0.2s ease",
+    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+    overflow: "hidden",
+  },
+
+  inputContainerFocused: {
+    borderColor: "#a0a0a0",
+    boxShadow: "0 0 0 3px rgba(190, 190, 190, 0.15)",
+  },
+
+  // 文件标签容器 - 在输入框内部
+  fileChipsContainer: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "6px",
+    padding: "12px 16px 8px 16px",
+    borderBottom: "1px solid #f3f4f6",
+    backgroundColor: "#fafbfc",
+  },
+
+  // 文件标签样式 - Google AI Studio 风格
+  fileChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "6px 8px 6px 10px",
+    backgroundColor: "#e8f4fd",
+    border: "1px solid #b8e6ff",
+    borderRadius: "16px",
     fontSize: "12px",
-    color: "#6b7280",
-    background: "#f9fafb",
-    border: "1px solid #e5e7eb",
-    borderRadius: "20px",
-    cursor: "pointer",
+    color: "#1e40af",
+    fontWeight: "500",
     transition: "all 0.2s ease",
+  },
+
+  // 移除文件按钮
+  removeFileChipButton: {
+    background: "none",
+    border: "none",
+    color: "#6b7280",
+    cursor: "pointer",
+    fontSize: "12px",
+    padding: "2px",
+    borderRadius: "50%",
+    width: "16px",
+    height: "16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "all 0.2s ease",
+  },
+
+  // 主输入行 - 包含文本框和按钮
+  inputRow: {
+    display: "flex",
+    alignItems: "center",
+    padding: "4px 4px 4px 20px",
+  },
+
+  // 文本输入框
+  textInput: {
+    flex: 1,
+    minWidth: 0,
+    border: "none",
+    outline: "none",
+    padding: "10px 8px",
+    fontSize: "15px",
+    lineHeight: "1.6",
+    resize: "none",
+    minHeight: "27px",
+    maxHeight: "150px",
+    backgroundColor: "transparent",
+    color: "#374151",
+    fontFamily: "inherit",
+  },
+
+  // 右侧操作按钮的容器
+  actionsContainer: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    paddingLeft: "12px",
+  },
+
+  // "添加文件"按钮 (+)
+  addButton: {
+    width: "36px",
+    height: "36px",
+    borderRadius: "50%",
+    border: "none",
+    background: "transparent",
+    color: "#4b5563",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: "22px",
+    fontWeight: "300",
+    transition: "background-color 0.2s ease",
+  },
+
+  // "运行"按钮
+  runButton: (disabled, isUploading) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 16px",
+    borderRadius: "20px",
+    border: "1px solid #d1d5db",
+    background: disabled ? "#f9fafb" : isUploading ? "#fef3c7" : "#ffffff",
+    color: disabled ? "#9ca3af" : isUploading ? "#92400e" : "#374151",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: "14px",
+    fontWeight: "500",
+    transition: "all 0.2s ease",
+    whiteSpace: "nowrap", // 防止文字换行
+  }),
+
+  // 上传进度条
+  progressBar: {
+    position: "absolute",
+    bottom: "0",
+    left: "0",
+    height: "2px",
+    backgroundColor: "#3b82f6",
+    borderRadius: "1px",
+    transition: "width 0.3s ease",
+  },
+
+  // 快捷键提示
+  shortcutHint: {
+    display: "flex",
+    alignItems: "center",
+    gap: "4px",
+    color: "#9ca3af",
+    fontSize: "13px",
   },
 };
 
@@ -493,15 +474,17 @@ const ModernMessageList = ({ messages, isLoading }) => {
 };
 
 // 现代化输入组件
+// 现代化输入组件 - Google AI Studio 风格
 const ModernChatInput = ({
   onSubmit,
   disabled,
   selectedFiles = [],
   onFilesChange,
+  uploadProgress = 0,
+  isUploading = false,
 }) => {
   const [value, setValue] = useState("");
   const [isFocused, setIsFocused] = useState(false);
-  const [dragOver, setDragOver] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -510,7 +493,7 @@ const ModernChatInput = ({
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = "auto";
-      textarea.style.height = Math.min(textarea.scrollHeight, 120) + "px";
+      textarea.style.height = Math.min(textarea.scrollHeight, 150) + "px";
     }
   }, [value]);
 
@@ -532,202 +515,158 @@ const ModernChatInput = ({
     if (validFiles.length > 0) {
       onFilesChange([...selectedFiles, ...validFiles]);
       setTimeout(() => textareaRef.current?.focus(), 100);
+    } else if (files.length > 0) {
+      alert(`不支持的文件格式。支持的格式：CSV、TSV、TXT、H5AD`);
     }
     e.target.value = "";
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setDragOver(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    if (!e.currentTarget.contains(e.relatedTarget)) {
-      setDragOver(false);
-    }
-  };
-
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-
-    const files = Array.from(e.dataTransfer.files);
-    const validFiles = files.filter((file) => {
-      const extension = file.name.toLowerCase().split(".").pop();
-      return ["csv", "tsv", "txt", "h5ad"].includes(extension);
-    });
-
-    if (validFiles.length > 0) {
-      onFilesChange([...selectedFiles, ...validFiles]);
-      setTimeout(() => textareaRef.current?.focus(), 100);
-    }
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
-    }
+  const removeFile = (index) => {
+    onFilesChange(selectedFiles.filter((_, i) => i !== index));
   };
 
   const getFileIcon = (fileName) => {
     const ext = fileName.toLowerCase().split(".").pop();
     switch (ext) {
-      case "h5ad":
-        return "🧬";
-      case "csv":
-        return "📊";
+      case "h5ad": return "🧬";
+      case "csv": return "📊";
       case "tsv":
-      case "txt":
-        return "📄";
-      default:
-        return "📎";
+      case "txt": return "📄";
+      default: return "📎";
     }
   };
 
-  const quickCommands =
-    selectedFiles.length > 0
-      ? ["UMAP降维分析", "聚类分析", "预览数据信息"]
-      : ["如何使用？", "分析示例", "支持的文件格式"];
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && e.ctrlKey && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
+  };
+
+  const isSubmitDisabled = disabled || isUploading || (!value.trim() && selectedFiles.length === 0);
 
   return (
     <div style={modernChatStyles.inputArea}>
-      {/* 快捷指令 */}
-      {quickCommands.length > 0 && (
-        <div style={modernChatStyles.quickActions}>
-          {quickCommands.map((command, index) => (
-            <button
-              key={index}
-              type="button"
-              onClick={() => {
-                setValue(command);
-                textareaRef.current?.focus();
-              }}
-              style={{
-                ...modernChatStyles.quickActionButton,
-                ":hover": {
-                  background: "#f3f4f6",
-                  borderColor: "#d1d5db",
-                },
-              }}
-              onMouseEnter={(e) => {
-                e.target.style.background = "#f3f4f6";
-                e.target.style.borderColor = "#d1d5db";
-              }}
-              onMouseLeave={(e) => {
-                e.target.style.background = "#f9fafb";
-                e.target.style.borderColor = "#e5e7eb";
-              }}
-            >
-              {command}
-            </button>
-          ))}
-        </div>
-      )}
-
       <form onSubmit={handleSubmit}>
         <div
           style={{
             ...modernChatStyles.inputContainer,
             ...(isFocused ? modernChatStyles.inputContainerFocused : {}),
-            ...(dragOver ? modernChatStyles.inputContainerDragOver : {}),
+            position: "relative",
           }}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
         >
-          {/* 文件预览 */}
+          {/* 上传进度条 */}
+          {isUploading && (
+            <div
+              style={{
+                ...modernChatStyles.progressBar,
+                width: `${uploadProgress}%`,
+              }}
+            />
+          )}
+
+          {/* 文件标签容器 - 在输入框内部 */}
           {selectedFiles.length > 0 && (
-            <div style={modernChatStyles.filePreview}>
+            <div style={modernChatStyles.fileChipsContainer}>
               {selectedFiles.map((file, index) => (
-                <div key={index} style={modernChatStyles.fileItem}>
-                  <span style={modernChatStyles.fileIcon}>
-                    {getFileIcon(file.name)}
+                <div
+                  key={index}
+                  style={modernChatStyles.fileChip}
+                  onMouseEnter={(e) => {
+                    e.target.style.backgroundColor = "#dbeafe";
+                    e.target.style.borderColor = "#93c5fd";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.backgroundColor = "#e8f4fd";
+                    e.target.style.borderColor = "#b8e6ff";
+                  }}
+                >
+                  <span>{getFileIcon(file.name)}</span>
+                  <span title={file.name}>
+                    {file.name.length > 15 ? `${file.name.substring(0, 15)}...` : file.name}
                   </span>
-                  <span>{file.name}</span>
                   <button
                     type="button"
-                    onClick={() =>
-                      onFilesChange(selectedFiles.filter((_, i) => i !== index))
-                    }
-                    style={modernChatStyles.removeFileButton}
+                    onClick={() => removeFile(index)}
+                    style={modernChatStyles.removeFileChipButton}
+                    title="移除文件"
                     onMouseEnter={(e) => {
-                      e.target.style.background = "#fee2e2";
-                      e.target.style.color = "#dc2626";
+                      e.target.style.backgroundColor = "#f3f4f6";
+                      e.target.style.color = "#ef4444";
                     }}
                     onMouseLeave={(e) => {
-                      e.target.style.background = "none";
-                      e.target.style.color = "#9ca3af";
+                      e.target.style.backgroundColor = "transparent";
+                      e.target.style.color = "#6b7280";
                     }}
                   >
-                    ✕
+                    ×
                   </button>
                 </div>
               ))}
             </div>
           )}
 
-          {/* 拖拽覆盖层 */}
-          {dragOver && (
-            <div style={modernChatStyles.dragOverlay}>
-              📁 拖拽文件到此处上传
-            </div>
-          )}
-
-          {/* 附件按钮 */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            style={modernChatStyles.attachButton}
-            onMouseEnter={(e) => {
-              e.target.style.background = "#e5e7eb";
-              e.target.style.color = "#374151";
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = "#f3f4f6";
-              e.target.style.color = "#6b7280";
-            }}
-          >
-            📎
-          </button>
-
-          {/* 文本输入框 */}
-          <textarea
-            ref={textareaRef}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onFocus={() => setIsFocused(true)}
-            onBlur={() => setIsFocused(false)}
-            placeholder={
-              selectedFiles.length > 0
-                ? "描述您想要进行的分析..."
-                : "输入您的分析指令，或上传文件开始分析..."
-            }
-            disabled={disabled}
-            style={modernChatStyles.textInput}
-            rows={1}
-          />
-
-          {/* 发送按钮 */}
-          <button
-            type="submit"
-            disabled={disabled || (!value.trim() && selectedFiles.length === 0)}
-            style={modernChatStyles.sendButton(
-              disabled || (!value.trim() && selectedFiles.length === 0)
-            )}
-            onMouseEnter={(e) => {
-              if (!disabled && (value.trim() || selectedFiles.length > 0)) {
-                e.target.style.transform = "translateY(-50%) scale(1.1)";
+          {/* 主输入行 - 文本框和操作按钮 */}
+          <div style={modernChatStyles.inputRow}>
+            {/* 文本输入框 */}
+            <textarea
+              ref={textareaRef}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              placeholder={
+                selectedFiles.length > 0
+                  ? "描述您想要进行的分析..."
+                  : "Start typing a prompt"
               }
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.transform = "translateY(-50%) scale(1)";
-            }}
-          >
-            {disabled ? "⏳" : "↗"}
-          </button>
+              disabled={disabled || isUploading}
+              style={modernChatStyles.textInput}
+              rows={1}
+            />
+
+            {/* 右侧操作区域 */}
+            <div style={modernChatStyles.actionsContainer}>
+              {/* 添加文件按钮 */}
+              <button
+                type="button"
+                title="Attach files (.csv, .tsv, .txt, .h5ad)"
+                onClick={() => fileInputRef.current?.click()}
+                style={modernChatStyles.addButton}
+                disabled={isUploading}
+                onMouseEnter={(e) => {
+                  if (!isUploading) e.target.style.backgroundColor = "#f0f0f0";
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.backgroundColor = "transparent";
+                }}
+              >
+                ⊕
+              </button>
+
+              {/* 运行按钮 */}
+              <button
+                type="submit"
+                disabled={isSubmitDisabled}
+                style={modernChatStyles.runButton(isSubmitDisabled, isUploading)}
+                onMouseEnter={(e) => {
+                  if (!isSubmitDisabled && !isUploading) e.target.style.borderColor = "#9ca3af";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSubmitDisabled && !isUploading) e.target.style.borderColor = "#d1d5db";
+                }}
+              >
+                <span>{isUploading ? `Uploading ${uploadProgress}%` : "Run"}</span>
+                {!isUploading && (
+                  <span style={modernChatStyles.shortcutHint}>
+                    <span>Ctrl</span>
+                    <span>↩</span>
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
 
           {/* 隐藏的文件输入 */}
           <input
@@ -752,23 +691,90 @@ const ModernUnifiedChat = ({
   height = "calc(100vh - 100px)",
 }) => {
   const [selectedFiles, setSelectedFiles] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // 文件上传进度模拟 - 仅用于UI反馈
+  const simulateUploadProgress = () => {
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    const progressInterval = setInterval(() => {
+      setUploadProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval);
+          return 90; // 保持在90%，等待真实响应
+        }
+        return prev + 10;
+      });
+    }, 100);
+
+    return () => {
+      clearInterval(progressInterval);
+      setIsUploading(false);
+      setUploadProgress(0);
+    };
+  };
 
   const handleSendMessage = useCallback(
-    (message, files) => {
-      if (onSendMessage) {
-        const messageContent =
-          files.length > 0
-            ? {
-                text: message,
-                files: files.map((file) => ({
-                  name: file.name,
-                  size: file.size,
-                  type: file.type,
-                })),
-              }
-            : message;
-        onSendMessage(messageContent, files);
+    async (message, files) => {
+      if (!onSendMessage) return;
+
+      try {
+        // 构造包含文件信息的消息内容 - 注意：这里只用于UI显示
+        const messageContent = files && files.length > 0
+          ? {
+              text: message,
+              files: files.map((file) => ({
+                name: file.name,
+                size: file.size,
+                type: file.type,
+              })),
+            }
+          : message;
+
+        // 如果有文件，启动上传进度模拟
+        let stopProgress = null;
+        if (files && files.length > 0) {
+          console.log(`Preparing ${files.length} files for upload:`, message);
+          console.log('Original File objects:', files.map(f => ({name: f.name, constructor: f.constructor.name})));
+          stopProgress = simulateUploadProgress();
+        }
+
+        // 调用父组件的处理函数，传递消息内容和原始文件对象
+        // 关键修复：确保传递原始的 File 对象数组，而不是处理后的 messageContent.files
+        await onSendMessage(messageContent, files);
+
+        // 清空选中的文件
         setSelectedFiles([]);
+
+        // 停止进度模拟
+        if (stopProgress) {
+          setTimeout(() => {
+            stopProgress();
+          }, 500); // 延迟停止，让用户看到完成效果
+        }
+
+      } catch (error) {
+        console.error('Send message error:', error);
+
+        // 停止上传状态
+        setIsUploading(false);
+        setUploadProgress(0);
+
+        // 显示错误信息给用户 - 这里仍然调用父组件，让它来决定如何处理错误
+        const errorMessage = {
+          text: `发送失败: ${error.message}`,
+          files: files ? files.map((file) => ({
+            name: file.name,
+            size: file.size,
+            type: file.type,
+          })) : [],
+        };
+
+        if (onSendMessage) {
+          onSendMessage(errorMessage, files || [], { error: error.message });
+        }
       }
     },
     [onSendMessage]
@@ -781,9 +787,11 @@ const ModernUnifiedChat = ({
         <ModernMessageList messages={messages} isLoading={isLoading} />
         <ModernChatInput
           onSubmit={handleSendMessage}
-          disabled={isLoading}
+          disabled={isLoading || isUploading}
           selectedFiles={selectedFiles}
           onFilesChange={setSelectedFiles}
+          uploadProgress={uploadProgress}
+          isUploading={isUploading}
         />
       </div>
     </>

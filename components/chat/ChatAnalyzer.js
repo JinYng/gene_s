@@ -63,11 +63,12 @@ const ChatAnalyzer = () => {
   const handleSendMessage = async (message, files = []) => {
     // 处理消息内容，支持字符串或对象格式
     let messageText = "";
-    let messageFiles = files;
+    let messageFiles = files; // 直接使用传入的 files 参数，这是原始的 File 对象数组
 
     if (typeof message === "object" && message !== null) {
       messageText = message.text || "";
-      messageFiles = message.files || files;
+      // 注意：不要从 message.files 中提取文件，因为那只是元信息
+      // messageFiles = message.files || files; // ❌ 错误的做法
     } else if (typeof message === "string") {
       messageText = message;
     }
@@ -75,119 +76,58 @@ const ChatAnalyzer = () => {
     if (!messageText.trim() && messageFiles.length === 0) return;
     if (!isClient) return; // 确保在客户端运行
 
-    // 添加用户消息
+    // 添加调试日志
+    if (messageFiles.length > 0) {
+      console.log('📄 ChatAnalyzer 收到文件:', messageFiles.map(f => ({
+        name: f.name,
+        size: f.size,
+        constructor: f.constructor.name,
+        isFileObject: f instanceof File
+      })));
+    }
+
+    // 创建用户消息对象 - 支持文件信息显示（使用元信息）
     const userMessage = {
       id: Date.now(),
       type: "user",
-      content: messageText,
-      files: messageFiles.map((f) => ({
-        name: f.name,
-        size: f.size,
-        type: f.type,
-      })),
+      content: messageFiles.length > 0
+        ? {
+            text: messageText,
+            files: messageFiles.map((f) => ({
+              name: f.name,
+              size: f.size,
+              type: f.type,
+            })),
+          }
+        : messageText,
       timestamp: new Date(),
     };
 
+    // 立即添加用户消息到界面
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
     try {
-      // 智能决定是否使用增强工作流
-      const useEnhanced = chatService.shouldUseEnhancedWorkflow(message, files);
+      let response;
 
-      console.log(
-        `🤖 消息处理: 使用${useEnhanced ? "增强工作流" : "标准模式"}`
-      );
-
-      // 调用聊天API
-      const response = useEnhanced
-        ? await chatService.sendEnhancedWorkflowMessage(
-            message,
-            files,
-            sessionId
-          )
-        : await chatService.sendMessage(message, files, sessionId);
-
-      // 处理响应
-      if (response.responses) {
-        response.responses.forEach((res, index) => {
-          setTimeout(() => {
-            // 确保content是字符串而不是对象
-            let content = res.content;
-            if (typeof content !== "string") {
-              if (content && typeof content === "object") {
-                // 如果content是对象，尝试提取有用的信息
-                if (content.message) {
-                  content = content.message;
-                } else if (content.data) {
-                  content = JSON.stringify(content.data, null, 2);
-                } else {
-                  content = JSON.stringify(content, null, 2);
-                }
-              } else {
-                content = String(content);
-              }
-            }
-
-            const assistantMessage = {
-              id: Date.now() + index,
-              type: "assistant",
-              content: content,
-              responseType: res.type,
-              timestamp: new Date(),
-              aiService: response.aiService, // 添加AI服务信息
-              workflowUsed: response.workflowUsed, // 添加工作流信息
-            };
-
-            setMessages((prev) => [...prev, assistantMessage]);
-
-            // 处理不同类型的响应
-            if (res.type === "plot_data") {
-              setVisualizationData(res.content);
-            } else if (res.type === "file_uploaded") {
-              // 处理文件上传响应
-              if (res.files && res.files.length > 0) {
-                setCurrentDataFile({
-                  name: res.files[0].name,
-                  files: res.files,
-                });
-              }
-            } else if (res.type === "file_info") {
-              // 处理文件信息响应
-              if (res.files && res.files.length > 0) {
-                setCurrentDataFile({
-                  name: res.files[0].name,
-                  files: res.files,
-                });
-              }
-            } else if (
-              res.type === "deckgl_visualization" &&
-              res.visualizationData
-            ) {
-              setVisualizationData(res.visualizationData);
-            }
-          }, index * 500); // 逐条显示消息，模拟对话感
-        });
+      // 根据是否有文件选择不同的处理方式
+      if (messageFiles.length > 0) {
+        // 有文件：使用文件上传API，传递原始的 File 对象数组
+        console.log(`🤖 上传${messageFiles.length}个文件并分析`);
+        response = await uploadFilesAndAnalyze(messageFiles, messageText, sessionId);
       } else {
-        // 处理没有responses字段的情况
-        let content = "";
-        if (response.message) {
-          content = response.message;
-        } else if (response.data) {
-          content = JSON.stringify(response.data, null, 2);
-        } else {
-          content = "收到响应，但没有具体内容。";
-        }
+        // 纯文本：使用标准聊天API
+        const useEnhanced = chatService.shouldUseEnhancedWorkflow(message, files);
+        console.log(`🤖 消息处理: 使用${useEnhanced ? "增强工作流" : "标准模式"}`);
 
-        const assistantMessage = {
-          id: Date.now(),
-          type: "assistant",
-          content: content,
-          timestamp: new Date(),
-        };
-
-        setMessages((prev) => [...prev, assistantMessage]);
+        response = useEnhanced
+          ? await chatService.sendEnhancedWorkflowMessage(message, files, sessionId)
+          : await chatService.sendMessage(message, files, sessionId);
       }
+
+      // 处理响应（统一的响应处理逻辑）
+      handleApiResponse(response);
+
     } catch (error) {
       console.error("发送消息失败:", error);
       const errorMessage = {
@@ -202,6 +142,151 @@ const ChatAnalyzer = () => {
       setIsLoading(false);
     }
   };
+
+  // 文件上传和分析函数
+  const uploadFilesAndAnalyze = async (files, message, sessionId) => {
+    console.log('🔍 uploadFilesAndAnalyze 开始处理文件:', files.map(f => ({
+      name: f.name,
+      size: f.size,
+      constructor: f.constructor.name,
+      isFile: f instanceof File
+    })));
+
+    const formData = new FormData();
+
+    // 添加消息文本和会话信息
+    formData.append('message', message);
+    formData.append('sessionId', sessionId);
+    formData.append('useWorkflow', 'true'); // 启用工作流分析
+
+    // 添加所有文件
+    files.forEach((file, index) => {
+      if (file instanceof File) {
+        formData.append(`files`, file);
+        console.log(`✅ 添加文件 ${index + 1}: ${file.name} (${file.size} bytes) - 是真实 File 对象`);
+      } else {
+        console.error(`❌ 文件 ${index + 1} 不是 File 对象:`, file);
+      }
+    });
+
+    // 调试：查看FormData中的内容
+    console.log('📦 FormData 内容:');
+    for (let [key, value] of formData.entries()) {
+      if (key === 'files') {
+        console.log(`  ${key}:`, value instanceof File ? `File(${value.name}, ${value.size} bytes)` : value);
+      } else {
+        console.log(`  ${key}:`, value);
+      }
+    }
+
+    // 使用fetch发送请求
+    const response = await fetch('/api/chat-ollama', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Upload failed with status: ${response.status}`);
+    }
+
+    return await response.json();
+  };
+
+  // 统一的API响应处理函数
+  const handleApiResponse = (response) => {
+    if (response.responses) {
+      response.responses.forEach((res, index) => {
+        setTimeout(() => {
+          // 确保content是字符串而不是对象
+          let content = res.content;
+          if (typeof content !== "string") {
+            if (content && typeof content === "object") {
+              // 如果content是对象，尝试提取有用的信息
+              if (content.message) {
+                content = content.message;
+              } else if (content.data) {
+                content = JSON.stringify(content.data, null, 2);
+              } else {
+                content = JSON.stringify(content, null, 2);
+              }
+            } else {
+              content = String(content);
+            }
+          }
+
+          const assistantMessage = {
+            id: Date.now() + index,
+            type: "assistant",
+            content: content,
+            responseType: res.type,
+            timestamp: new Date(),
+            aiService: response.aiService, // 添加AI服务信息
+            workflowUsed: response.workflowUsed, // 添加工作流信息
+          };
+
+          setMessages((prev) => [...prev, assistantMessage]);
+
+          // 处理不同类型的响应
+          if (res.type === "plot_data") {
+            setVisualizationData(res.content);
+          } else if (res.type === "file_uploaded") {
+            // 处理文件上传响应
+            if (res.files && res.files.length > 0) {
+              setCurrentDataFile({
+                name: res.files[0].name,
+                files: res.files,
+              });
+            }
+          } else if (res.type === "file_info") {
+            // 处理文件信息响应
+            if (res.files && res.files.length > 0) {
+              setCurrentDataFile({
+                name: res.files[0].name,
+                files: res.files,
+              });
+            }
+          } else if (
+            res.type === "deckgl_visualization" &&
+            res.visualizationData
+          ) {
+            setVisualizationData(res.visualizationData);
+          }
+        }, index * 500); // 逐条显示消息，模拟对话感
+      });
+    } else {
+      // 处理没有responses字段的情况
+      let content = "";
+      if (response.message) {
+        content = response.message;
+      } else if (response.data) {
+        content = JSON.stringify(response.data, null, 2);
+      } else {
+        content = "收到响应，但没有具体内容。";
+      }
+
+      const assistantMessage = {
+        id: Date.now(),
+        type: "assistant",
+        content: content,
+        timestamp: new Date(),
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+    }
+  };
+
+  // 添加一个专门用于从ModernUnifiedChat立即显示用户消息的函数
+  const addUserMessage = (userMessage) => {
+    setMessages((prev) => [...prev, userMessage]);
+  };
+
+  // 增强handleSendMessage函数，支持立即显示用户消息
+  const enhancedHandleSendMessage = (message, files = []) => {
+    return handleSendMessage(message, files);
+  };
+
+  // 为ModernUnifiedChat提供addUserMessage方法
+  enhancedHandleSendMessage.addUserMessage = addUserMessage;
 
   // 清空对话
   const handleClearChat = () => {
@@ -370,7 +455,7 @@ const ChatAnalyzer = () => {
           >
             <ModernUnifiedChat
               messages={messages}
-              onSendMessage={handleSendMessage}
+              onSendMessage={enhancedHandleSendMessage}
               isLoading={isLoading}
               height="100%"
             />
