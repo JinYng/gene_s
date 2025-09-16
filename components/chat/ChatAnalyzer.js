@@ -1,7 +1,7 @@
 // components/ChatAnalyzer.js
 
 import React, { useState, useRef, useEffect } from "react";
-import UnifiedChat from "./UnifiedChat";
+import ModernUnifiedChat from "./ModernUnifiedChat";
 import VisualizationPanel from "./VisualizationPanel";
 import AIServiceSelector from "./AIServiceSelector";
 import { chatService } from "../../services/chatService";
@@ -368,7 +368,7 @@ const ChatAnalyzer = () => {
               minHeight: 0,
             }}
           >
-            <UnifiedChat
+            <ModernUnifiedChat
               messages={messages}
               onSendMessage={handleSendMessage}
               isLoading={isLoading}
