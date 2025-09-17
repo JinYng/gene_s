@@ -1,9 +1,9 @@
 // components/ChatAnalyzer.js
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import ModernUnifiedChat from "./ModernUnifiedChat";
 import VisualizationPanel from "./VisualizationPanel";
-import AIServiceSelector from "./AIServiceSelector";
+import AIModelManager from "./AIModelManager";
 import { chatService } from "../../services/chatService";
 import {
   presetStyles,
@@ -41,18 +41,32 @@ const ChatAnalyzer = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [currentDataFile, setCurrentDataFile] = useState(null);
   const [currentAIService, setCurrentAIService] = useState(null);
-  const [showServiceSelector, setShowServiceSelector] = useState(false);
+  // const [showServiceSelector, setShowServiceSelector] = useState(false); // 移除不再使用的状态
   // const [activeTab, setActiveTab] = useState("chat"); // 移除标签页控制
 
-  // 初始化客户端和AI服务
+  // 初始化客户端和AI模型
   useEffect(() => {
     setIsClient(true);
     const initAIService = async () => {
       try {
-        const service = chatService.getCurrentService();
-        setCurrentAIService(service);
+        // 使用新的模型配置系统初始化
+        const { getModelById, DEFAULT_MODEL_ID, STORAGE_KEYS } = await import("../../config/models.js");
+
+        // 从localStorage获取保存的模型ID，或使用默认模型
+        const savedModelId = localStorage.getItem(STORAGE_KEYS.SELECTED_MODEL) || DEFAULT_MODEL_ID;
+        const model = getModelById(savedModelId);
+
+        setCurrentAIService(model);
+        console.log(`初始化AI模型: ${model.name} (${model.modelId})`);
       } catch (error) {
-        console.error("初始化AI服务失败:", error);
+        console.error("初始化AI模型失败:", error);
+        // 设置一个默认的模型结构以防万一
+        setCurrentAIService({
+          id: 'ollama-gemma',
+          name: 'Ollama 本地模型',
+          provider: 'Ollama',
+          modelId: 'gemma3:4b'
+        });
       }
     };
 
@@ -303,91 +317,53 @@ const ChatAnalyzer = () => {
     setCurrentDataFile(null);
   };
 
-  // 处理AI服务切换
-  const handleServiceChange = (newService) => {
-    if (!isClient) return;
-    setCurrentAIService(newService);
-    console.log(`已切换到AI服务: ${newService.name}`);
+  // 使用ref跟踪上一次的模型ID，避免重复触发
+  const lastModelIdRef = useRef(null);
 
-    // 在聊天中显示切换信息
+  // 处理AI服务/模型切换 - 使用useCallback防止每次渲染都创建新函数
+  const handleServiceChange = useCallback((newModel) => {
+    if (!isClient) return;
+
+    // 防止重复切换到相同模型
+    if (lastModelIdRef.current === newModel.id) {
+      console.log(`🔄 跳过重复切换，当前已是模型: ${newModel.name}`);
+      return;
+    }
+
+    lastModelIdRef.current = newModel.id;
+    setCurrentAIService(newModel);
+    console.log(`已切换到AI模型: ${newModel.name} (${newModel.modelId})`);
+
+    // 只有在真正切换模型时才显示消息
     const switchMessage = {
       id: Date.now(),
       type: "assistant",
-      content: `🤖 已切换到 ${newService.name} (${newService.model})\n\n现在可以继续进行对话和数据分析。`,
+      content: `🤖 已切换到 ${newModel.name} (${newModel.modelId})\n\n现在可以继续进行对话和数据分析。`,
       timestamp: new Date(),
       aiService: {
-        provider: newService.provider,
-        model: newService.model,
-        name: newService.name,
+        provider: newModel.provider,
+        model: newModel.modelId,
+        name: newModel.name,
       },
     };
 
     setMessages((prev) => [...prev, switchMessage]);
-  };
-
-  // AI服务切换按钮样式
-  const switchButtonProps = createHoverStyles(
-    {
-      ...buttonStyles.secondary,
-      fontSize: fontSize.sm,
-      padding: `${spacing.xs} ${spacing.sm}`,
-    },
-    {
-      backgroundColor: colors.background.hover,
-    }
-  );
+  }, [isClient]);
 
   return (
     <div style={presetStyles.chat.analyzer}>
       {/* 左侧聊天面板 */}
       <div style={presetStyles.chat.panel}>
-        {/* AI服务选择器 */}
-        <div style={presetStyles.chat.aiServiceSelector}>
-          <div
-            style={{
-              ...flexUtils.spaceBetween,
-              padding: `${spacing.base} ${spacing.md}`,
-              backgroundColor: colors.background.tertiary,
-            }}
-          >
-            <div style={{ ...flexUtils.centerVertical, gap: spacing.sm }}>
-              <span>🤖</span>
-              <span
-                style={{
-                  fontSize: fontSize.base,
-                  fontWeight: "600",
-                  color: colors.text.primary,
-                }}
-              >
-                {currentAIService?.name || "加载中..."}
-              </span>
-              <span
-                style={{
-                  fontSize: fontSize.sm,
-                  color: colors.text.tertiary,
-                  fontFamily: "monospace",
-                  background: colors.background.hover,
-                  padding: `2px ${spacing.xs}`,
-                  borderRadius: "4px",
-                }}
-              >
-                {currentAIService?.model || "..."}
-              </span>
-            </div>
-            <button
-              onClick={() => setShowServiceSelector(!showServiceSelector)}
-              {...switchButtonProps}
-            >
-              {showServiceSelector ? "隐藏" : "切换"}
-            </button>
-          </div>
-
-          {showServiceSelector && (
-            <AIServiceSelector
-              currentService={currentAIService}
-              onServiceChange={handleServiceChange}
-            />
-          )}
+        {/* AI模型管理器 */}
+        <div style={{
+          padding: `${spacing.base} ${spacing.md}`,
+          backgroundColor: colors.background.tertiary,
+          borderBottom: `1px solid ${colors.border.secondary}`,
+        }}>
+          <AIModelManager
+            onModelChange={handleServiceChange}
+            currentModelId={currentAIService?.id}
+          />
         </div>
 
         {/* 聊天内容 */}

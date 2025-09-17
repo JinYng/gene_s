@@ -1,11 +1,11 @@
 // components/chat/ModernUnifiedChat.js
-// 现代化的ChatGPT风格聊天组件，具有优雅的设计和流畅的交互
+// 聊天组件，具有优雅的设计和流畅的交互
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-// 现代化的样式定义，参考ChatGPT设计
+// 样式定义
 const modernChatStyles = {
   // 主容器样式
   container: (height) => ({
@@ -31,7 +31,7 @@ const modernChatStyles = {
     background: "linear-gradient(to bottom, #fafafa 0%, #ffffff 100%)",
   },
 
-  // 消息样式 - ChatGPT风格
+  // 消息样式 
   message: {
     container: (isUser) => ({
       display: "flex",
@@ -104,7 +104,7 @@ const modernChatStyles = {
     lineHeight: "1.6",
   },
 
-  // 输入区域样式 - Google AI Studio 风格
+  // 输入区域样式 
   inputArea: {
     padding: "16px 16px 16px 16px",
     borderTop: "1px solid #e5e7eb",

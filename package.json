@@ -31,7 +31,6 @@
     "setup": "node scripts/setup.js",
     "fix-imports": "node scripts/fix-imports.js",
     "validate-config": "node scripts/validate-config.js",
-    "predev": "node scripts/validate-config.js",
     "chat-server": "python -m uvicorn chat_scripts.main:app --reload --host 0.0.0.0 --port 8001",
     "chat-server-win": "python -m uvicorn chat_scripts.main:app --reload --host 0.0.0.0 --port 8001"
   },
