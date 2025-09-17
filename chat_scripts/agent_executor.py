@@ -1,497 +1,371 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Chat专用LangChain智能代理
-用于处理BioChat界面的自然语言查询和智能分析
+LangChain Agent执行器 - ChatOllama兼容版本
+使用对话式工具选择替代tool calling，实现与ChatOllama的兼容性
 """
 
 import os
 import sys
 import json
+import re
 import argparse
-import subprocess
+import traceback
 from pathlib import Path
+from typing import Optional, Dict, Any, List
+
+# LangChain imports
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
+# 导入我们的工具
+from tools import available_tools, tool_registry
 
 # 导入统一错误处理
-from error_handler import (
-    ErrorHandler,
-    AnalysisError,
-    create_llm_error,
-    create_analysis_error,
-    handle_errors,
-)
-
-# 确保项目根目录在 sys.path 中
-project_root = str(Path(__file__).parent.parent)
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
-
-from langchain_core.prompts import ChatPromptTemplate
-
 try:
-    from pydantic.v1 import BaseModel, Field
+    from error_handler import ErrorHandler, AnalysisError, create_analysis_error
 except ImportError:
-    from langchain_core.pydantic_v1 import BaseModel, Field
-from langchain_community.chat_models import ChatOllama
-from langchain_core.output_parsers import JsonOutputParser
-
-print(f"DEBUG: Chat agent_executor.py started.", file=sys.stderr)
-print(f"DEBUG: Project root: {project_root}", file=sys.stderr)
+    print("警告: error_handler 模块不可用，将使用简单错误处理", file=sys.stderr)
+    ErrorHandler = None
 
 
-# --- Pydantic 模型定义 ---
-class Action(BaseModel):
-    """根据用户意图选择要执行的动作"""
+class SingleCellAnalysisAgent:
+    """基于ChatOllama的单细胞分析智能代理（兼容版本）"""
 
-    action_type: str = Field(
-        description="要执行的动作类型: 'single_cell_analysis', 'convert_matrix' 或 'general_chat'"
-    )
-    arguments: dict = Field(description="所选动作的参数")
+    def __init__(self, model_name: str = "gemma3:4b", base_url: str = "http://localhost:11434"):
+        """
+        初始化Agent
 
+        Args:
+            model_name: Ollama模型名称
+            base_url: Ollama服务URL
+        """
+        self.model_name = model_name
+        self.base_url = base_url
 
-# --- LangChain 组件 ---
-def get_llm():
-    """初始化并返回 ChatOllama 实例"""
-    return ChatOllama(model="gemma3:4b", temperature=0)
-
-
-def get_parser():
-    """初始化并返回 JSON 解析器"""
-    return JsonOutputParser(pydantic_object=Action)
-
-
-def get_prompt_template():
-    """创建并返回简化的聊天提示模板"""
-    return ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """
-You are a single-cell data analysis assistant. Parse user requests into JSON format.
-
-Available actions:
-1. "single_cell_analysis" - for data analysis (UMAP, t-SNE, PCA, clustering)
-2. "convert_matrix" - for file format conversion to H5AD
-3. "general_chat" - for questions and general conversation
-
-When user says things like:
-- "进行UMAP降维分析" → single_cell_analysis with method="umap"  
-- "对数据进行聚类" → single_cell_analysis with method="clustering"
-- "转换成H5AD格式" → convert_matrix
-- "你好" → general_chat with input field
-
-ALWAYS respond with valid JSON in this exact format:
-
-For analysis:
-{{
-    "action_type": "single_cell_analysis",
-    "arguments": {{
-        "method": "umap",
-        "output_path": "output/umap_result.png",
-        "params": {{}}
-    }}
-}}
-
-For general chat:
-{{
-    "action_type": "general_chat",
-    "arguments": {{
-        "input": "user's original message"
-    }}
-}}
-
-{format_instructions}
-""",
-            ),
-            ("human", "User request: {query}"),
-        ]
-    )
-
-
-# --- 核心功能 ---
-def analyze_user_intent(query: str):
-    """使用 LLM 分析用户意图并返回 JSON 格式的动作"""
-    try:
-        print(f"DEBUG: Starting intent analysis for query: '{query}'", file=sys.stderr)
-
-        prompt = get_prompt_template()
-        parser = get_parser()
-        llm = get_llm()
-
-        print(f"DEBUG: LLM model: {llm.model}", file=sys.stderr)
-
-        # 先尝试直接调用LLM，不使用解析器
-        messages = prompt.format_messages(
-            query=query, format_instructions=parser.get_format_instructions()
+        # 初始化LLM
+        print(f"初始化ChatOllama: {model_name}", file=sys.stderr)
+        self.llm = ChatOllama(
+            model=model_name,
+            base_url=base_url,
+            temperature=0.1,  # 较低温度确保一致性
         )
 
-        print(
-            f"DEBUG: Formatted prompt messages: {len(messages)} messages",
-            file=sys.stderr,
-        )
+        # 创建系统提示
+        self.system_prompt = """你是一个专业的单细胞转录组数据分析助手。你可以使用以下工具：
 
-        # 调用LLM
-        raw_response = llm.invoke(messages)
-        print(f"DEBUG: Raw LLM response: {raw_response.content}", file=sys.stderr)
+可用工具：
+1. summarize_h5ad_data - 获取H5AD数据文件的基本信息和统计摘要
+2. umap_analysis - 执行UMAP降维分析，生成2D可视化散点图
+3. tsne_analysis - 执行t-SNE降维分析，生成2D可视化散点图
+4. pca_analysis - 执行PCA主成分分析，生成2D可视化散点图
 
-        # 尝试解析JSON
+工具选择指南：
+- 如果用户询问数据基本信息、细胞数量、基因数量等，使用 summarize_h5ad_data
+- 如果用户要求UMAP分析或UMAP可视化，使用 umap_analysis
+- 如果用户要求t-SNE分析或t-SNE可视化，使用 tsne_analysis
+- 如果用户要求PCA分析或PCA可视化，使用 pca_analysis
+
+请根据用户查询，选择最合适的工具。回复格式：
+TOOL_CALL: [工具名称]
+PARAMETERS: {"file_path": "文件路径", "color_by": "着色方式"}
+
+例如：
+TOOL_CALL: umap_analysis
+PARAMETERS: {"file_path": "/path/to/data.h5ad", "color_by": "cluster"}"""
+
+        print(f"SingleCellAnalysisAgent 初始化完成", file=sys.stderr)
+        print(f"   - 模型: {model_name}", file=sys.stderr)
+        print(f"   - 可用工具: {len(available_tools)}个", file=sys.stderr)
+
+    def analyze(self, query: str, file_path: str) -> Dict[str, Any]:
+        """
+        执行分析任务
+
+        Args:
+            query: 用户的自然语言查询
+            file_path: 数据文件路径
+
+        Returns:
+            分析结果字典
+        """
         try:
-            # 清理响应内容，移除可能的markdown代码块
-            content = raw_response.content.strip()
-            if content.startswith("```json"):
-                content = content[7:]  # 移除```json
-            if content.endswith("```"):
-                content = content[:-3]  # 移除```
-            content = content.strip()
+            print(f"Agent开始分析: {query}", file=sys.stderr)
+            print(f"数据文件: {file_path}", file=sys.stderr)
 
-            result = json.loads(content)
-            print(f"DEBUG: Successfully parsed JSON: {result}", file=sys.stderr)
-            return result
+            # 构建对话消息
+            messages = [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=f"""
+用户查询: {query}
+数据文件路径: {file_path}
 
-        except json.JSONDecodeError as e:
-            print(f"DEBUG: JSON decode failed: {e}", file=sys.stderr)
-            print(f"DEBUG: Attempting to extract JSON from response", file=sys.stderr)
-
-            # 使用统一错误处理记录JSON解析错误
-            ErrorHandler.log_error(
-                e, {"llm_operation": True, "response_content": content}
-            )
-
-            # 尝试基于关键词的简单规则匹配作为fallback
-            query_lower = query.lower()
-            if any(
-                keyword in query_lower
-                for keyword in ["umap", "降维", "dimensionality reduction"]
-            ):
-                fallback_result = {
-                    "action_type": "single_cell_analysis",
-                    "arguments": {
-                        "method": "umap",
-                        "output_path": "output/umap_analysis.png",
-                        "params": {},
-                    },
-                }
-                print(
-                    f"DEBUG: Using fallback result for UMAP: {fallback_result}",
-                    file=sys.stderr,
-                )
-                return fallback_result
-
-            elif any(
-                keyword in query_lower for keyword in ["聚类", "cluster", "clustering"]
-            ):
-                fallback_result = {
-                    "action_type": "single_cell_analysis",
-                    "arguments": {
-                        "method": "clustering",
-                        "output_path": "output/clustering_analysis.png",
-                        "params": {},
-                    },
-                }
-                print(
-                    f"DEBUG: Using fallback result for clustering: {fallback_result}",
-                    file=sys.stderr,
-                )
-                return fallback_result
-
-            else:
-                fallback_result = {
-                    "action_type": "general_chat",
-                    "arguments": {"input": query},
-                }
-                print(
-                    f"DEBUG: Using fallback result for general chat: {fallback_result}",
-                    file=sys.stderr,
-                )
-                return fallback_result
-
-    except Exception as e:
-        # 使用统一错误处理
-        ErrorHandler.log_error(e, {"llm_operation": True, "query": query})
-
-        # 返回一个默认的fallback结果而不是None
-        fallback_result = {
-            "action_type": "general_chat",
-            "arguments": {"input": "分析过程中出现错误，请检查输入数据和系统配置"},
-        }
-        print(f"DEBUG: Using error fallback result: {fallback_result}", file=sys.stderr)
-        return fallback_result
-
-
-def execute_action(action: dict, file_path: str = None):
-    """执行指定的动作"""
-    action_type = action.get("action_type")
-    arguments = action.get("arguments")
-
-    print(f"DEBUG: Executing {action_type} with args: {arguments}", file=sys.stderr)
-
-    if action_type == "single_cell_analysis":
-        # 使用analysis_scripts中的处理器
-        script_path = str(
-            Path(project_root) / "chat_scripts" / "single_cell_processor.py"
-        )
-
-        # 如果没有提供文件路径，使用参数中的文件路径
-        if not file_path:
-            file_path = arguments.get("file_path", "")
-
-        # 确保文件路径不为空
-        if not file_path:
-            return {
-                "success": False,
-                "error": "未提供数据文件路径",
-                "action_type": "analysis",
-            }
-
-        # 根据文件类型选择命令
-        if file_path.endswith(".h5ad"):
-            args = [
-                sys.executable,
-                script_path,
-                "process_h5ad",
-                file_path,
-                "none",  # metadata_file (不需要)
-                str(arguments.get("method", "umap")),
-                "cluster",  # color_by (默认使用cluster)
-            ]
-        else:
-            # CSV/TSV文件
-            args = [
-                sys.executable,
-                script_path,
-                "convert_to_h5ad_and_process",
-                file_path,
-                "none",  # metadata_file (可选)
-                str(arguments.get("method", "umap")),
-                "cluster",  # color_by (默认使用cluster)
+请分析用户需求，选择合适的工具处理这个H5AD格式的单细胞数据文件。
+""")
             ]
 
-        print(f"DEBUG: Running: {' '.join(args)}", file=sys.stderr)
+            # 调用LLM获取工具选择
+            response = self.llm.invoke(messages)
+            llm_output = response.content
 
-        try:
-            # 设置环境变量确保UTF-8编码
-            env = os.environ.copy()
-            env["PYTHONIOENCODING"] = "utf-8"
+            print(f"LLM响应: {llm_output}", file=sys.stderr)
 
-            process = subprocess.run(
-                args,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="ignore",  # 忽略编码错误
-                timeout=120,
-                env=env,
-            )
-            stdout, stderr = process.stdout, process.stderr
+            # 解析工具调用
+            tool_name, parameters = self._parse_tool_call(llm_output, file_path)
 
-            if process.returncode == 0:
-                # 提取JSON数据 - single_cell_processor输出格式为 === PLOT_DATA_START === {json} === PLOT_DATA_END ===
-                json_data = None
-                if (
-                    "=== PLOT_DATA_START ===" in stdout
-                    and "=== PLOT_DATA_END ===" in stdout
-                ):
-                    start_marker = "=== PLOT_DATA_START ==="
-                    end_marker = "=== PLOT_DATA_END ==="
-                    start_idx = stdout.find(start_marker) + len(start_marker)
-                    end_idx = stdout.find(end_marker)
-                    json_str = stdout[start_idx:end_idx].strip()
-                    try:
-                        result_data = json.loads(json_str)
-                        json_data = result_data
-                    except json.JSONDecodeError as e:
-                        print(
-                            f"DEBUG: Failed to parse extracted JSON: {e}",
-                            file=sys.stderr,
-                        )
-                        print(
-                            f"DEBUG: Extracted JSON string (first 500 chars): {json_str[:500]}",
-                            file=sys.stderr,
-                        )
-                        return {
-                            "success": False,
-                            "error": f"JSON解析失败: {e}",
-                            "action_type": "analysis",
-                        }
-                else:
-                    # 尝试直接解析整个stdout作为JSON（向后兼容）
-                    try:
-                        result_data = json.loads(stdout)
-                        json_data = result_data
-                    except json.JSONDecodeError as e:
-                        print(
-                            f"DEBUG: No JSON markers found and direct parsing failed: {e}",
-                            file=sys.stderr,
-                        )
-                        print(
-                            f"DEBUG: Raw stdout (first 500 chars): {stdout[:500]}",
-                            file=sys.stderr,
-                        )
-                        return {
-                            "success": False,
-                            "error": f"无法解析分析结果: {e}",
-                            "action_type": "analysis",
-                        }
+            if tool_name and tool_name in tool_registry:
+                print(f"执行工具: {tool_name}, 参数: {parameters}", file=sys.stderr)
 
-                # 检查single_cell_processor的返回结果
-                if isinstance(json_data, dict) and json_data.get("success") == False:
-                    # 如果single_cell_processor返回了错误，传递错误信息
-                    return {
-                        "success": False,
-                        "error": json_data.get("error", "分析过程中出现未知错误"),
-                        "action_type": "analysis",
-                    }
-                else:
-                    # 成功情况
-                    return {
-                        "success": True,
-                        "data": json_data,
-                        "action_type": "analysis",
-                    }
+                # 调用工具
+                tool_func = tool_registry[tool_name]
+                tool_result = tool_func.invoke(parameters)
+
+                # 解析工具结果
+                return self._parse_tool_result(tool_result)
             else:
-                error_msg = stderr or "分析进程执行失败，未返回错误信息"
-                return {"success": False, "error": error_msg, "action_type": "analysis"}
+                return {
+                    "success": False,
+                    "data": {},
+                    "message": f"无法识别合适的工具，LLM输出: {llm_output}"
+                }
+
         except Exception as e:
-            # 使用统一错误处理
-            handled_error = ErrorHandler.handle_analysis_error(
-                e, "single_cell_analysis"
-            )
-            return handled_error.to_dict()
+            error_msg = f"Agent分析失败: {str(e)}"
+            print(f"❌ {error_msg}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
 
-    elif action_type == "convert_matrix":
-        # 使用chat_scripts中的转换器
-        script_path = str(Path(project_root) / "chat_scripts" / "matrix_converter.py")
-
-        # 如果没有提供文件路径，使用参数中的文件路径
-        if not file_path:
-            file_path = arguments.get("input_file", "")
-
-        # 确保文件路径不为空
-        if not file_path:
             return {
                 "success": False,
-                "error": "未提供输入文件路径",
-                "action_type": "conversion",
+                "data": {},
+                "message": error_msg
             }
 
-        args = [
-            sys.executable,
-            script_path,
-            "convert",
-            "--input",
-            file_path,
-            "--output",
-            str(arguments.get("output_file", "output/converted_file.h5ad")),
-            "--format",
-            str(arguments.get("format", "csv")),
-        ]
+    def _parse_tool_call(self, llm_output: str, file_path: str) -> tuple[Optional[str], Dict[str, Any]]:
+        """
+        解析LLM输出中的工具调用
 
-        if "metadata_file" in arguments:
-            args.extend(["--metadata", str(arguments["metadata_file"])])
+        Args:
+            llm_output: LLM的输出文本
+            file_path: 数据文件路径
 
-        print(f"DEBUG: Running: {' '.join(args)}", file=sys.stderr)
-
+        Returns:
+            (工具名称, 参数字典)
+        """
         try:
-            process = subprocess.Popen(
-                args,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                errors="replace",  # 处理编码错误
-            )
-            stdout, stderr = process.communicate()
+            # 查找TOOL_CALL和PARAMETERS
+            tool_pattern = r'TOOL_CALL:\s*(\w+)'
+            param_pattern = r'PARAMETERS:\s*({.*?})'
 
-            if process.returncode == 0:
-                result_data = json.loads(stdout)
-                # 检查转换器的返回结果
-                if (
-                    isinstance(result_data, dict)
-                    and result_data.get("success") == False
-                ):
-                    # 如果转换器返回了错误，传递错误信息
+            tool_match = re.search(tool_pattern, llm_output)
+            param_match = re.search(param_pattern, llm_output, re.DOTALL)
+
+            if tool_match:
+                tool_name = tool_match.group(1).strip()
+
+                # 解析参数
+                if param_match:
+                    try:
+                        param_str = param_match.group(1).strip()
+                        parameters = json.loads(param_str)
+                    except json.JSONDecodeError:
+                        print(f"参数JSON解析失败，使用默认参数", file=sys.stderr)
+                        parameters = {}
+                else:
+                    parameters = {}
+
+                # 确保file_path参数存在
+                if 'file_path' not in parameters:
+                    parameters['file_path'] = file_path
+
+                # 为分析工具添加默认color_by参数
+                if tool_name in ['umap_analysis', 'tsne_analysis', 'pca_analysis']:
+                    if 'color_by' not in parameters:
+                        parameters['color_by'] = 'cluster'
+
+                return tool_name, parameters
+
+            # 备用逻辑：基于关键词推断工具
+            print("未找到明确的工具调用，使用关键词推断", file=sys.stderr)
+
+            query_lower = llm_output.lower()
+            if any(word in query_lower for word in ['umap', 'umap分析', 'umap降维']):
+                return 'umap_analysis', {'file_path': file_path, 'color_by': 'cluster'}
+            elif any(word in query_lower for word in ['tsne', 't-sne', 'tsne分析', 'tsne降维']):
+                return 'tsne_analysis', {'file_path': file_path, 'color_by': 'cluster'}
+            elif any(word in query_lower for word in ['pca', 'pca分析', '主成分分析']):
+                return 'pca_analysis', {'file_path': file_path, 'color_by': 'cluster'}
+            elif any(word in query_lower for word in ['摘要', '基本信息', '数据信息', '统计']):
+                return 'summarize_h5ad_data', {'file_path': file_path}
+            else:
+                # 默认使用数据摘要工具
+                return 'summarize_h5ad_data', {'file_path': file_path}
+
+        except Exception as e:
+            print(f"工具调用解析失败: {e}", file=sys.stderr)
+            return None, {}
+
+    def _parse_tool_result(self, tool_result: str) -> Dict[str, Any]:
+        """
+        解析工具执行结果
+
+        Args:
+            tool_result: 工具返回的JSON字符串
+
+        Returns:
+            标准化的结果字典
+        """
+        try:
+            # 尝试解析JSON结果
+            if isinstance(tool_result, str):
+                result_data = json.loads(tool_result)
+            else:
+                result_data = tool_result
+
+            # 检查是否有错误
+            if isinstance(result_data, dict):
+                if result_data.get('success') == False:
                     return {
                         "success": False,
-                        "error": result_data.get("error", "转换过程中出现未知错误"),
-                        "action_type": "conversion",
+                        "data": {},
+                        "message": result_data.get('error', '工具执行失败')
                     }
                 else:
-                    # 成功情况
                     return {
                         "success": True,
                         "data": result_data,
-                        "action_type": "conversion",
+                        "message": "分析完成"
                     }
             else:
-                error_msg = stderr or "转换进程执行失败，未返回错误信息"
                 return {
-                    "success": False,
-                    "error": error_msg,
-                    "action_type": "conversion",
+                    "success": True,
+                    "data": {"result": result_data},
+                    "message": "分析完成"
                 }
+
+        except json.JSONDecodeError as e:
+            print(f"工具结果JSON解析失败: {e}", file=sys.stderr)
+            return {
+                "success": False,
+                "data": {},
+                "message": f"工具结果解析失败: {str(e)}"
+            }
         except Exception as e:
-            # 使用统一错误处理
-            handled_error = ErrorHandler.handle_analysis_error(e, "matrix_conversion")
-            return handled_error.to_dict()
+            print(f"工具结果处理失败: {e}", file=sys.stderr)
+            return {
+                "success": False,
+                "data": {},
+                "message": f"工具结果处理失败: {str(e)}"
+            }
 
-    elif action_type == "general_chat":
-        # 处理一般聊天，确保有input字段
-        user_input = arguments.get("input", "用户进行了一般性对话")
-        return {
-            "success": True,
-            "data": {"response": f"收到您的消息：{user_input}"},
-            "action_type": "chat",
-        }
+    def run_analysis(self, query: str, file_path: str) -> Dict[str, Any]:
+        """
+        执行分析的主方法（保持向后兼容）
+        """
+        return self.analyze(query, file_path)
 
-    else:
+
+# 全局Agent实例（用于函数式接口）
+_agent_instance: Optional[SingleCellAnalysisAgent] = None
+
+
+def get_agent_instance() -> SingleCellAnalysisAgent:
+    """
+    获取全局Agent实例（单例模式）
+    """
+    global _agent_instance
+    if _agent_instance is None:
+        _agent_instance = SingleCellAnalysisAgent()
+    return _agent_instance
+
+
+def run_analysis(query: str, file_path: str) -> Dict[str, Any]:
+    """
+    执行分析的函数式接口
+    供其他模块（如FastAPI服务器）调用
+
+    Args:
+        query: 用户查询
+        file_path: 数据文件路径
+
+    Returns:
+        Dict[str, Any]: 分析结果
+    """
+    try:
+        agent = get_agent_instance()
+        return agent.analyze(query, file_path)
+
+    except Exception as e:
+        error_msg = f"分析执行失败: {str(e)}"
+        print(f"❌ {error_msg}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+
         return {
             "success": False,
-            "error": f"Unknown action type: {action_type}",
-            "action_type": "error",
+            "data": {},
+            "message": error_msg
         }
 
 
-# --- 主函数 ---
 def main():
-    """主函数 - 用于命令行调用"""
-    parser = argparse.ArgumentParser(description="Chat智能分析代理")
-    parser.add_argument("--query", required=True, help="用户查询")
-    parser.add_argument("--file-path", help="数据文件路径")
-    parser.add_argument("--session-id", help="会话ID")
+    """
+    命令行接口
+    """
+    parser = argparse.ArgumentParser(description="单细胞数据分析智能代理")
+    parser.add_argument("--query", "-q", required=True, help="分析查询")
+    parser.add_argument("--file-path", "-f", required=True, help="数据文件路径")
+    parser.add_argument("--model", "-m", default="gemma3:4b", help="Ollama模型名称")
+    parser.add_argument("--base-url", "-u", default="http://localhost:11434", help="Ollama服务地址")
 
     args = parser.parse_args()
 
+    # 创建Agent实例
     try:
-        # 分析用户意图
-        action = analyze_user_intent(args.query)
-        if not action:
-            error_result = {
-                "success": False,
-                "error": "无法分析用户意图",
-                "data": {},
-                "action_type": "error",
-            }
-            print(json.dumps(error_result, ensure_ascii=False))
-            return
+        agent = SingleCellAnalysisAgent(
+            model_name=args.model,
+            base_url=args.base_url
+        )
 
-        # 执行动作，传递文件路径
-        result = execute_action(action, args.file_path)
+        # 执行分析
+        result = agent.analyze(args.query, args.file_path)
 
-        # 确保结果包含必要的字段
-        if not isinstance(result, dict):
-            result = {"success": False, "error": "执行结果格式错误", "data": {}}
+        # 输出结果
+        print("=== ANALYSIS_RESULT_START ===")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        print("=== ANALYSIS_RESULT_END ===")
 
-        # 确保包含success字段
-        if "success" not in result:
-            result["success"] = False
-
-        print(json.dumps(result, ensure_ascii=False))
+        # 退出码
+        sys.exit(0 if result.get("success", False) else 1)
 
     except Exception as e:
-        # 使用统一错误处理
-        ErrorHandler.print_error_json(
-            e, {"function": "main", "include_traceback": True}
-        )
+        error_result = {
+            "success": False,
+            "error": f"Agent初始化或执行失败: {str(e)}",
+            "details": str(e)
+        }
+
+        print("=== ANALYSIS_RESULT_START ===")
+        print(json.dumps(error_result, ensure_ascii=False, indent=2))
+        print("=== ANALYSIS_RESULT_END ===")
+
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1:
+        main()
+    else:
+        """测试Agent功能"""
+        print("测试LangChain Agent (ChatOllama兼容版本)", file=sys.stderr)
+
+        # 测试Agent创建
+        try:
+            agent = get_agent_instance()
+            print("✅ Agent创建成功", file=sys.stderr)
+
+            # 简单功能测试
+            print("Agent初始化完成，可以接受分析请求", file=sys.stderr)
+
+        except Exception as e:
+            print(f"❌ Agent测试失败: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)

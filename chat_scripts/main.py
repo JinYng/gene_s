@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Chat专用FastAPI服务器
-提供BioChat界面的后端API服务
+提供BioChat界面的后端API服务 - 使用LangChain Agent架构
 """
 
 import os
 import sys
 import json
-import tempfile
-import subprocess
+import traceback
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -21,7 +21,10 @@ project_root = str(Path(__file__).parent.parent)
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-app = FastAPI(title="Chat API Server", description="BioChat专用API服务")
+# 导入我们的Agent执行器
+from agent_executor import run_analysis
+
+app = FastAPI(title="Single Cell Analysis API", description="基于LangChain Agent的单细胞分析API服务")
 
 # CORS配置
 app.add_middleware(
@@ -48,144 +51,163 @@ class ChatResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    timestamp: str
+    message: str
+    agent_ready: bool
 
 
-# 全局变量
-CHAT_AGENT_PATH = str(Path(__file__).parent / "agent_executor.py")
-
-
-# 路由定义
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """健康检查接口"""
-    import datetime
+    """健康检查端点"""
+    try:
+        # 尝试获取Agent实例来验证系统是否就绪
+        from agent_executor import get_agent_instance
+        agent = get_agent_instance()
 
-    return HealthResponse(
-        status="healthy", timestamp=datetime.datetime.now().isoformat()
-    )
+        return HealthResponse(
+            status="healthy",
+            message="FastAPI服务和LangChain Agent都已就绪",
+            agent_ready=True
+        )
+    except Exception as e:
+        return HealthResponse(
+            status="degraded",
+            message=f"Agent初始化失败: {str(e)}",
+            agent_ready=False
+        )
 
 
 @app.post("/analyze", response_model=ChatResponse)
-async def analyze_with_chat(request: ChatRequest):
-    """Chat智能分析接口"""
+async def analyze_with_agent(request: ChatRequest):
+    """
+    使用LangChain Agent进行智能分析
+    这是新的、简化的分析端点，完全基于Agent架构
+    """
     try:
-        # 构建命令参数
-        cmd = [sys.executable, CHAT_AGENT_PATH, "--query", request.query]
+        print(f"🚀 收到分析请求: {request.query}", file=sys.stderr)
+        print(f"📁 文件路径: {request.file_path}", file=sys.stderr)
 
-        if request.file_path:
-            cmd.extend(["--file-path", request.file_path])
+        # 验证请求
+        if not request.query.strip():
+            raise HTTPException(status_code=400, detail="查询内容不能为空")
 
-        if request.session_id:
-            cmd.extend(["--session-id", request.session_id])
+        if not request.file_path:
+            raise HTTPException(status_code=400, detail="必须提供数据文件路径")
 
-        print(f"DEBUG: Executing command: {' '.join(cmd)}", file=sys.stderr)
+        # 检查文件是否存在
+        if not os.path.exists(request.file_path):
+            raise HTTPException(status_code=404, detail=f"数据文件不存在: {request.file_path}")
 
-        # 执行命令
-        process = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            cwd=project_root,
-            encoding="utf-8",
-            errors="replace",  # 处理编码错误
+        # 直接调用Agent执行分析
+        print(f"🤖 调用LangChain Agent执行分析...", file=sys.stderr)
+        analysis_result = run_analysis(
+            query=request.query,
+            file_path=request.file_path
         )
 
-        print(f"DEBUG: Process return code: {process.returncode}", file=sys.stderr)
-        print(f"DEBUG: Process stdout: {process.stdout}", file=sys.stderr)
-        if process.stderr:
-            print(f"DEBUG: Process stderr: {process.stderr}", file=sys.stderr)
+        print(f"✅ Agent分析完成", file=sys.stderr)
 
-        if process.returncode != 0:
-            error_msg = process.stderr or "未知错误"
-            raise HTTPException(status_code=500, detail=f"分析失败: {error_msg}")
+        # 返回结果
+        return ChatResponse(
+            success=analysis_result.get("success", True),
+            data=analysis_result.get("data", {}),
+            message=analysis_result.get("message", "分析完成")
+        )
 
-        # 解析结果
-        try:
-            # 检查stdout是否为空
-            if not process.stdout or process.stdout.strip() == "":
-                print(f"DEBUG: Empty stdout from Python process", file=sys.stderr)
-                return ChatResponse(
-                    success=False,
-                    data={},
-                    message="Python进程没有返回任何输出，可能是分析过程中出现了错误",
-                )
-
-            result = json.loads(process.stdout)
-            # 确保message字段不为None
-            error_msg = result.get("error") or result.get("message") or ""
-            return ChatResponse(
-                success=result.get("success", False),
-                data=result.get("data", {}),
-                message=error_msg,
-            )
-        except json.JSONDecodeError as e:
-            print(f"DEBUG: JSON decode error: {e}", file=sys.stderr)
-            print(f"DEBUG: Raw stdout: {process.stdout}", file=sys.stderr)
-            return ChatResponse(
-                success=False, data={}, message=f"返回结果格式错误: {e}"
-            )
-
-    except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="分析超时 (超过120秒)")
+    except HTTPException:
+        # 重新抛出HTTP异常
+        raise
     except Exception as e:
-        print(f"DEBUG: Unexpected error: {e}", file=sys.stderr)
-        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+        error_msg = f"分析过程中发生错误: {str(e)}"
+        print(f"❌ {error_msg}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+
+        return ChatResponse(
+            success=False,
+            data={},
+            message=error_msg
+        )
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def general_chat(request: ChatRequest):
-    """一般聊天接口"""
+async def chat_with_agent(request: ChatRequest):
+    """
+    通用聊天接口
+    当没有文件路径时可以用于一般性查询
+    """
     try:
-        # 构建命令参数
-        cmd = [sys.executable, CHAT_AGENT_PATH, "--query", request.query]
+        print(f"💬 收到聊天请求: {request.query}", file=sys.stderr)
 
-        # 执行命令
-        process = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            cwd=project_root,
-            encoding="utf-8",
-            errors="replace",  # 处理编码错误
+        # 验证请求
+        if not request.query.strip():
+            raise HTTPException(status_code=400, detail="查询内容不能为空")
+
+        # 如果有文件路径，转发到分析端点
+        if request.file_path and os.path.exists(request.file_path):
+            return await analyze_with_agent(request)
+
+        # 一般性查询响应
+        response_message = f"""
+感谢您的查询: {request.query}
+
+我是单细胞转录组数据分析助手。要进行数据分析，请：
+1. 上传您的H5AD格式数据文件
+2. 使用分析接口 (/analyze) 并提供具体的分析需求
+
+我可以帮助您进行：
+- UMAP降维分析和可视化
+- t-SNE降维分析
+- PCA主成分分析
+- 数据摘要和基本统计
+
+请上传数据文件并告诉我您想要进行什么类型的分析！
+"""
+
+        return ChatResponse(
+            success=True,
+            data={"response_type": "general_chat"},
+            message=response_message
         )
 
-        if process.returncode != 0:
-            error_msg = process.stderr or "未知错误"
-            return ChatResponse(
-                success=False, data={}, message=f"聊天处理失败: {error_msg}"
-            )
-
-        # 解析结果
-        try:
-            result = json.loads(process.stdout)
-            # 确保message字段不为None
-            error_msg = result.get("error") or result.get("message") or ""
-            return ChatResponse(
-                success=result.get("success", False),
-                data=result.get("data", {}),
-                message=error_msg,
-            )
-        except json.JSONDecodeError:
-            return ChatResponse(success=False, data={}, message="返回结果格式错误")
-
     except Exception as e:
-        return ChatResponse(success=False, data={}, message=str(e))
+        error_msg = f"处理聊天请求时发生错误: {str(e)}"
+        print(f"❌ {error_msg}", file=sys.stderr)
+
+        return ChatResponse(
+            success=False,
+            data={},
+            message=error_msg
+        )
 
 
-# 启动函数
-def start_server():
-    """启动服务器"""
-    uvicorn.run(
-        "chat_scripts.main:app",
-        host="0.0.0.0",
-        port=8001,
-        reload=True,
-        log_level="info",
-    )
+@app.get("/")
+async def root():
+    """根路径"""
+    return {
+        "service": "Single Cell Analysis API",
+        "version": "2.0.0",
+        "description": "基于LangChain Agent的智能单细胞数据分析服务",
+        "endpoints": {
+            "health": "/health",
+            "analyze": "/analyze",
+            "chat": "/chat"
+        },
+        "features": [
+            "智能自然语言理解",
+            "多种降维分析方法",
+            "数据摘要和统计",
+            "可视化数据生成"
+        ]
+    }
 
 
 if __name__ == "__main__":
-    start_server()
+    print("启动Single Cell Analysis API服务器...", file=sys.stderr)
+    print("使用LangChain Agent架构", file=sys.stderr)
+    print("监听端口: 8001", file=sys.stderr)
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8001,
+        log_level="info"
+    )

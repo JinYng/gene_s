@@ -242,7 +242,7 @@ const AIModelManager = ({ onModelChange, currentModelId = null }) => {
       fontWeight: '500',
       color: '#374151',
       transition: 'all 0.2s ease',
-      minWidth: '200px',
+      minWidth: '550px',
       ':hover': {
         backgroundColor: '#f9fafb',
         borderColor: '#d1d5db',

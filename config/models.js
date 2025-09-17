@@ -12,6 +12,9 @@ export const models = [
     requires_api_key: false,
     icon: '🖥️',
     endpoint: 'http://localhost:11434',
+    // LangChain 集成配置
+    is_openai_compatible: false, // Ollama 使用自己的 API 格式
+    base_url: null, // 将使用 config/index.js 中的 ollamaConfig
   },
   {
     id: 'zhipu-glm4.5v',
@@ -23,6 +26,9 @@ export const models = [
     requires_api_key: true,
     icon: '🌟',
     endpoint: 'https://open.bigmodel.cn/api/paas/v4',
+    // LangChain 集成配置
+    is_openai_compatible: true, // 智谱AI v4 提供了 OpenAI 兼容端点
+    base_url: 'https://open.bigmodel.cn/api/paas/v4/',
   },
   {
     id: 'openai-gpt4',
@@ -34,7 +40,25 @@ export const models = [
     requires_api_key: true,
     icon: '🚀',
     endpoint: 'https://api.openai.com/v1',
+    // LangChain 集成配置
+    is_openai_compatible: true, // 原生 OpenAI 格式
+    base_url: 'https://api.openai.com/v1',
     disabled: true, // 暂未实现
+  },
+  {
+    id: 'modelscope-qwen-turbo',
+    name: '通义千问 Turbo',
+    provider: 'ModelScope',
+    modelId: 'qwen-turbo',
+    description: '阿里云通义千问模型 - 快速响应',
+    type: 'api',
+    requires_api_key: true,
+    icon: '⚡',
+    endpoint: 'https://dashscope.aliyuncs.com/api/v1',
+    // LangChain 集成配置
+    is_openai_compatible: false, // DashScope API 格式不兼容，需要自定义
+    base_url: 'https://dashscope.aliyuncs.com/api/v1',
+    disabled: true, // 需要配置才能启用
   },
   // 未来可以轻松添加更多模型
   // {
@@ -47,6 +71,8 @@ export const models = [
   //   requires_api_key: true,
   //   icon: '🎭',
   //   endpoint: 'https://api.anthropic.com',
+  //   is_openai_compatible: false, // Anthropic 有自己的 API 格式
+  //   base_url: 'https://api.anthropic.com',
   //   disabled: true,
   // }
 ];

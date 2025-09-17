@@ -15,7 +15,7 @@ import numpy as np
 import scanpy as sc
 import warnings
 from pathlib import Path
-from typing import Optional, Any, Union
+from typing import Optional, Any, Union, Dict
 from scipy.sparse import issparse
 
 # 导入转换器
@@ -467,6 +467,117 @@ class OptimizedSingleCellProcessor:
         print("=== PLOT_DATA_END ===")
 
         return error_data
+
+    def get_data_summary(self, file_path: str) -> Dict[str, Any]:
+        """
+        获取H5AD数据文件的详细摘要信息
+
+        Args:
+            file_path (str): H5AD文件路径
+
+        Returns:
+            Dict[str, Any]: 包含数据摘要的字典
+        """
+        try:
+            print(f"📊 开始分析数据摘要: {file_path}", file=sys.stderr)
+
+            # 读取H5AD文件
+            import scanpy as sc
+            adata = sc.read_h5ad(file_path)
+
+            # 基本统计信息
+            n_cells = adata.shape[0]
+            n_genes = adata.shape[1]
+
+            # 检查可用的观测数据列
+            obs_columns = list(adata.obs.columns)
+            var_columns = list(adata.var.columns)
+
+            # 检查可用的降维结果
+            available_embeddings = []
+            if 'X_pca' in adata.obsm:
+                available_embeddings.append('PCA')
+            if 'X_umap' in adata.obsm:
+                available_embeddings.append('UMAP')
+            if 'X_tsne' in adata.obsm:
+                available_embeddings.append('t-SNE')
+
+            # 检查聚类信息
+            clustering_columns = []
+            for col in obs_columns:
+                if any(keyword in col.lower() for keyword in ['cluster', 'leiden', 'louvain']):
+                    clustering_columns.append(col)
+
+            # 计算数据质量指标
+            quality_metrics = {}
+            try:
+                # 计算每个细胞的基因数和总UMI数
+                if 'n_genes' in adata.obs:
+                    quality_metrics['avg_genes_per_cell'] = float(adata.obs['n_genes'].mean())
+                if 'total_counts' in adata.obs:
+                    quality_metrics['avg_umi_per_cell'] = float(adata.obs['total_counts'].mean())
+
+                # 计算稀疏度
+                if hasattr(adata.X, 'nnz'):
+                    # 稀疏矩阵
+                    sparsity = 1 - (adata.X.nnz / (adata.shape[0] * adata.shape[1]))
+                else:
+                    # 密集矩阵
+                    sparsity = 1 - (np.count_nonzero(adata.X) / (adata.shape[0] * adata.shape[1]))
+                quality_metrics['sparsity'] = float(sparsity)
+
+            except Exception as e:
+                print(f"计算质量指标时出错: {e}", file=sys.stderr)
+
+            # 文件信息
+            file_info = {
+                'file_path': file_path,
+                'file_size_mb': round(Path(file_path).stat().st_size / (1024 * 1024), 2)
+            }
+
+            summary = {
+                "success": True,
+                "basic_info": {
+                    "n_cells": n_cells,
+                    "n_genes": n_genes,
+                    "file_info": file_info
+                },
+                "data_structure": {
+                    "obs_columns": obs_columns,
+                    "var_columns": var_columns,
+                    "available_embeddings": available_embeddings,
+                    "clustering_columns": clustering_columns
+                },
+                "quality_metrics": quality_metrics,
+                "analysis_suggestions": []
+            }
+
+            # 添加分析建议
+            suggestions = []
+            if not available_embeddings:
+                suggestions.append("建议先进行降维分析 (UMAP, t-SNE, 或 PCA)")
+            if not clustering_columns:
+                suggestions.append("建议进行细胞聚类分析")
+            if n_cells > 10000:
+                suggestions.append("数据集较大，推荐使用UMAP进行快速可视化")
+            elif n_cells < 1000:
+                suggestions.append("数据集较小，可以尝试更精细的分析参数")
+
+            summary["analysis_suggestions"] = suggestions
+
+            print(f"✅ 数据摘要分析完成: {n_cells}细胞, {n_genes}基因", file=sys.stderr)
+            return summary
+
+        except Exception as e:
+            error_msg = f"数据摘要分析失败: {str(e)}"
+            print(f"❌ {error_msg}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+
+            return {
+                "success": False,
+                "error": error_msg,
+                "details": str(e)
+            }
 
 
 def main():

@@ -6,6 +6,9 @@ import path from "path";
 import axios from "axios";
 import { ErrorHandler, createError, AppError } from "../../lib/errorHandler.js";
 import appConfig, { getConfig } from "../../config/index.js";
+import { getModelById } from "../../config/models.js";
+import { createChatModel } from "../../lib/llmFactory.js";
+import { HumanMessage, AIMessage } from "@langchain/core/messages";
 
 export const config = {
   api: {
@@ -50,12 +53,17 @@ export default async function handler(req, res) {
     const sessionId = fields.sessionId?.[0] || `enhanced_session_${Date.now()}`;
     const useWorkflow = fields.useWorkflow?.[0] === "true";
 
+    // 新增：从前端获取模型配置
+    const selectedModelId = fields.selectedModelId?.[0] || 'ollama-gemma';
+    const apiKey = fields.apiKey?.[0]; // 从前端获取API密钥
+
     // 处理上传的文件
     uploadedFiles = Object.values(files).flat().filter(Boolean);
 
     console.log(`\n🚀 处理开始:`);
     console.log(`📝 消息: ${message}`);
     console.log(`🆔 会话: ${sessionId}`);
+    console.log(`🤖 选择模型: ${selectedModelId}`);
     console.log(`📁 文件: ${uploadedFiles.length}个`);
     console.log(`⚙️ 使用工作流: ${useWorkflow}`);
 
@@ -126,16 +134,9 @@ export default async function handler(req, res) {
       });
     }
 
-    // 检查是否应该调用Python代理
-    if (
-      useWorkflow &&
-      (uploadedFiles.length > 0 ||
-        message.includes("分析") ||
-        message.includes("降维") ||
-        message.includes("聚类") ||
-        message.includes("可视化"))
-    ) {
-      console.log("🐍 调用Python LangChain代理...");
+    // 检查是否应该调用Python代理 - 简化逻辑，移除关键词匹配
+    if (useWorkflow) {
+      console.log("🐍 调用Python LangChain代理 (基于useWorkflow标志)...");
 
       // 优先查找H5AD文件，然后是CSV/TSV文件
       const h5adFile = uploadedFiles.find((f) =>
@@ -220,25 +221,88 @@ export default async function handler(req, res) {
         });
       }
     } else {
-      // 使用直接对话模式
-      console.log("💬 使用直接对话模式...");
-      try {
-        const chatResponses = await processDirectChat(
-          message,
-          session,
-          uploadedFiles
-        );
-        responses.push(...chatResponses);
-      } catch (chatError) {
-        console.error("直接对话失败:", chatError);
+      // 💬 使用 LangChain 通用对话模式 (重构后的部分)
+      console.log("💬 执行LangChain统一聊天模式...");
 
-        // 使用统一错误处理
-        const handledError = ErrorHandler.handleOllamaError(chatError);
+      try {
+        // 1. 获取模型配置
+        const currentModel = getModelById(selectedModelId);
+        console.log(`🤖 使用模型: ${currentModel.name} (${currentModel.provider})`);
+
+        // 2. 使用工厂创建模型实例
+        const chatModel = createChatModel(currentModel, apiKey);
+
+        // 3. 构建标准化的对话历史 (HumanMessage, AIMessage)
+        const chatHistory = session.messages.slice(-5).map(msg => {
+          const content = typeof msg.content === 'object' ?
+            (msg.content.text || JSON.stringify(msg.content)) :
+            (msg.content || '');
+
+          return msg.role === 'user' ?
+            new HumanMessage(content) :
+            new AIMessage(content);
+        });
+
+        // 4. 如果有文件上传，添加文件信息到提示中
+        let enhancedMessage = message;
+        if (uploadedFiles.length > 0) {
+          const fileList = uploadedFiles.map(file => {
+            const ext = file.originalFilename.toLowerCase().split(".").pop();
+            let icon = "📎";
+            switch (ext) {
+              case "h5ad": icon = "🧬"; break;
+              case "csv": icon = "📊"; break;
+              case "tsv":
+              case "txt": icon = "📄"; break;
+            }
+            return `${icon} ${file.originalFilename} (${(file.size / 1024 / 1024).toFixed(2)}MB)`;
+          }).join(", ");
+
+          enhancedMessage = `用户已上传文件: ${fileList}\n\n用户消息: ${message}\n\n请根据用户的问题和上传的文件提供有帮助的回答。如果用户想要分析数据，建议他们开启"使用工作流"选项来进行深入的数据分析。`;
+        }
+
+        // 添加当前消息到历史中
+        chatHistory.push(new HumanMessage(enhancedMessage));
+
+        // 5. 调用模型 (所有模型都使用统一的 .invoke() 方法!)
+        console.log(`🚀 调用${currentModel.provider}模型...`);
+        const result = await chatModel.invoke(chatHistory);
+
+        // 6. 格式化标准响应
+        const finalResponses = [{
+          type: 'chat_response',
+          content: result.content || result.text || result.response || String(result)
+        }];
+
+        responses.push(...finalResponses);
+
+        console.log(`✅ ${currentModel.provider}模型响应成功`);
+
+      } catch (chatError) {
+        console.error("LangChain聊天模式失败:", chatError);
+
+        // 详细的错误处理
+        let errorMessage = "AI聊天服务暂时不可用";
+        let suggestion = "";
+
+        if (chatError.message.includes("API") || chatError.message.includes("密钥")) {
+          errorMessage = "API密钥验证失败";
+          suggestion = "请检查您的API密钥是否正确配置";
+        } else if (chatError.message.includes("timeout") || chatError.message.includes("超时")) {
+          errorMessage = "服务响应超时";
+          suggestion = "请稍后重试";
+        } else if (chatError.message.includes("Ollama") || chatError.message.includes("11434")) {
+          errorMessage = "本地Ollama服务不可用";
+          suggestion = "请确保Ollama服务正在运行 (ollama serve)";
+        }
 
         responses.push({
           type: "error",
-          content: `对话处理失败: ${handledError.message}`,
-          errorDetails: handledError.details,
+          content: `${errorMessage}: ${chatError.message}${suggestion ? `\n\n💡 ${suggestion}` : ''}`,
+          errorDetails: {
+            provider: selectedModelId,
+            originalError: chatError.message
+          }
         });
       }
     }
@@ -256,10 +320,13 @@ export default async function handler(req, res) {
     const processingTime = Date.now() - startTime;
     console.log(`✅ 处理完成，耗时: ${processingTime}ms`);
 
+    // 获取当前使用的模型信息
+    const currentModel = getModelById(selectedModelId);
+
     // 返回响应
     res.status(200).json({
       responses,
-      aiService: "Ollama Enhanced (gemma3:4b)",
+      aiService: `${currentModel.name} (${currentModel.modelId})`,
       sessionId,
       processingTime,
       workflowUsed: useWorkflow,
@@ -303,134 +370,6 @@ export default async function handler(req, res) {
     }
 
     res.status(statusCode).json(errorResponse);
-  }
-}
-
-/**
- * 处理直接对话
- */
-async function processDirectChat(message, session, uploadedFiles) {
-  const responses = [];
-
-  try {
-    // 如果有文件上传，提供简洁的文件信息
-    if (uploadedFiles.length > 0) {
-      const fileNames = uploadedFiles
-        .map((file) => {
-          const ext = file.originalFilename.toLowerCase().split(".").pop();
-          let icon = "📎";
-          switch (ext) {
-            case "h5ad":
-              icon = "🧬";
-              break;
-            case "csv":
-              icon = "📊";
-              break;
-            case "tsv":
-            case "txt":
-              icon = "📄";
-              break;
-          }
-          return `${icon} ${file.originalFilename}`;
-        })
-        .join(", ");
-
-      responses.push({
-        type: "file_info",
-        content: `📁 已上传: ${fileNames}\n\n💡 开启"使用工作流"可进行数据分析`,
-      });
-    }
-
-    // 构建对话上下文
-    const conversationContext = session.messages
-      .slice(-5) // 取最近5条消息作为上下文
-      .map((msg) => `${msg.role}: ${msg.content}`)
-      .join("\n");
-
-    // 调用Ollama进行对话
-    const chatResponse = await callOllamaForChat(message, conversationContext);
-
-    responses.push({
-      type: "chat_response",
-      content: chatResponse,
-    });
-  } catch (error) {
-    console.error("直接对话处理失败:", error);
-    responses.push({
-      type: "error",
-      content: `对话处理失败: ${error.message}`,
-    });
-  }
-
-  return responses;
-}
-
-/**
- * 调用Ollama进行对话
- */
-async function callOllamaForChat(message, context = "") {
-  try {
-    const ollamaConfig = getConfig("ai.ollama");
-
-    const prompt = `你是一个友好、专业的AI助手，专长于单细胞转录组数据分析。
-
-对话上下文:
-${context}
-
-用户消息: ${message}
-
-请根据用户的问题提供有帮助的回答：
-
-1. 如果用户询问一般问题，请提供准确、友好的回答
-2. 如果用户询问单细胞数据分析相关问题，请提供专业指导
-3. 如果用户想要分析数据，建议他们：
-   - 上传H5AD、CSV或TSV格式的数据文件
-   - 开启"使用工作流"选项
-   - 描述想要进行的分析（如"进行UMAP降维分析"、"查看数据摘要"等）
-
-请用中文回答，语调友好自然。`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(
-      () => controller.abort(),
-      ollamaConfig.timeout
-    );
-
-    const response = await fetch(`${ollamaConfig.baseUrl}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: ollamaConfig.defaultModel,
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.7,
-          top_p: 0.9,
-          max_tokens: 2000,
-        },
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`Ollama API请求失败: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.response;
-  } catch (error) {
-    console.error("Ollama对话调用失败:", error);
-
-    // 使用统一错误处理，但这里需要返回用户友好的消息
-    const handledError = ErrorHandler.handleOllamaError(error);
-
-    if (handledError.details?.suggestion) {
-      return `抱歉，${handledError.message}\n\n💡 ${handledError.details.suggestion}`;
-    }
-
-    return `抱歉，AI服务暂时不可用。错误信息: ${handledError.message}`;
   }
 }
 

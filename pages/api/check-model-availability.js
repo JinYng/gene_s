@@ -1,9 +1,11 @@
 // pages/api/check-model-availability.js
-// AI模型可用性验证API
+// AI模型可用性验证API - 使用LangChain统一工厂
 
 import { ErrorHandler, createError } from "../../lib/errorHandler.js";
 import { getConfig } from "../../config/index.js";
 import { getModelById } from "../../config/models.js";
+import { createChatModel, validateModel } from "../../lib/llmFactory.js";
+import { HumanMessage } from "@langchain/core/messages";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -24,8 +26,8 @@ export default async function handler(req, res) {
     }
 
     // 获取模型配置
-    const model = getModelById(modelId);
-    if (!model) {
+    const modelConfig = getModelById(modelId);
+    if (!modelConfig) {
       return res.status(400).json({
         success: false,
         status: "unavailable",
@@ -33,31 +35,69 @@ export default async function handler(req, res) {
       });
     }
 
-    console.log(`🔍 检查模型可用性: ${model.name} (${model.provider})`);
+    console.log(`🔍 检查模型可用性: ${modelConfig.name} (${modelConfig.provider})`);
 
-    // 根据模型类型进行不同的验证
-    let availabilityResult;
+    // 使用LangChain统一工厂进行验证
+    try {
+      console.log(`🏭 使用LangChain工厂创建模型: ${modelConfig.provider}`);
 
-    switch (model.provider) {
-      case 'Ollama':
-        availabilityResult = await checkOllamaAvailability(model);
-        break;
-      case '智谱':
-        availabilityResult = await checkZhipuAvailability(model, apiKey);
-        break;
-      case 'OpenAI':
-        availabilityResult = await checkOpenAIAvailability(model, apiKey);
-        break;
-      default:
-        return res.status(400).json({
-          success: false,
-          status: "unavailable",
-          message: `不支持的模型提供商: ${model.provider}`,
-        });
+      // 使用工厂创建模型实例
+      const model = createChatModel(modelConfig, apiKey);
+
+      // 发送一个简短的测试消息来验证连接
+      console.log(`🧪 发送测试消息验证模型...`);
+      const testMessage = new HumanMessage("测试");
+
+      // 设置较短的超时时间进行快速验证
+      await model.invoke([testMessage], { timeout: 10000 });
+
+      console.log(`✅ 模型 ${modelConfig.name} 验证成功`);
+
+      return res.status(200).json({
+        success: true,
+        status: "available",
+        message: "模型验证成功",
+        provider: modelConfig.provider,
+        modelName: modelConfig.name,
+      });
+
+    } catch (modelError) {
+      console.error(`❌ 模型验证失败:`, modelError.message);
+
+      // 基于错误类型提供更精确的错误信息
+      let errorMessage = "模型不可用";
+      let suggestion = "";
+      let status = "unavailable";
+
+      if (modelError.message.includes("API") || modelError.message.includes("密钥")) {
+        errorMessage = "API密钥验证失败";
+        suggestion = "请检查您的API密钥是否正确";
+        status = "unconfigured";
+      } else if (modelError.message.includes("timeout") || modelError.message.includes("超时")) {
+        errorMessage = "服务响应超时";
+        suggestion = "请稍后重试";
+      } else if (modelError.message.includes("Ollama") || modelError.message.includes("11434")) {
+        errorMessage = "本地Ollama服务不可用";
+        suggestion = "请确保Ollama服务正在运行 (ollama serve)";
+      } else if (modelError.message.includes("模型") && modelError.message.includes("需要")) {
+        errorMessage = "API密钥缺失";
+        suggestion = "此模型需要API密钥才能使用";
+        status = "unconfigured";
+      } else if (modelError.message.includes("不支持的")) {
+        errorMessage = "模型提供商不支持";
+        suggestion = "请选择其他可用的模型";
+      }
+
+      return res.status(200).json({
+        success: false,
+        status: status,
+        message: errorMessage,
+        suggestion: suggestion,
+        provider: modelConfig.provider,
+        modelName: modelConfig.name,
+        originalError: modelError.message,
+      });
     }
-
-    // 返回验证结果
-    return res.status(200).json(availabilityResult);
 
   } catch (error) {
     console.error("❌ 模型可用性检查失败:", error);
@@ -71,173 +111,5 @@ export default async function handler(req, res) {
   }
 }
 
-/**
- * 检查Ollama本地模型可用性
- */
-async function checkOllamaAvailability(model) {
-  try {
-    const ollamaConfig = getConfig("ai.ollama");
-    const response = await fetch(`${ollamaConfig.baseUrl}/api/tags`, {
-      method: 'GET',
-      timeout: 5000,
-    });
-
-    if (!response.ok) {
-      return {
-        success: false,
-        status: "unavailable",
-        message: "Ollama服务不可用，请确保已启动 ollama serve",
-      };
-    }
-
-    const data = await response.json();
-    const availableModels = data.models?.map(m => m.name) || [];
-
-    // 检查指定模型是否已下载
-    const isModelAvailable = availableModels.some(name =>
-      name.includes(model.modelId) || name.includes(model.modelId.split(':')[0])
-    );
-
-    if (isModelAvailable) {
-      return {
-        success: true,
-        status: "available",
-        message: "模型可用",
-      };
-    } else {
-      return {
-        success: false,
-        status: "unavailable",
-        message: `模型 ${model.modelId} 未找到，请运行: ollama pull ${model.modelId}`,
-      };
-    }
-
-  } catch (error) {
-    console.error("Ollama检查失败:", error);
-    return {
-      success: false,
-      status: "unavailable",
-      message: "无法连接到Ollama服务，请检查是否已启动",
-    };
-  }
-}
-
-/**
- * 检查智谱AI可用性
- */
-async function checkZhipuAvailability(model, apiKey) {
-  try {
-    if (!apiKey) {
-      return {
-        success: false,
-        status: "unconfigured",
-        message: "请输入智谱AI的API密钥",
-      };
-    }
-
-    const zhipuConfig = getConfig("ai.zhipu");
-    const response = await fetch(`${zhipuConfig.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: model.modelId,
-        messages: [{ role: 'user', content: 'test' }],
-        max_tokens: 1,
-      }),
-      timeout: 10000,
-    });
-
-    if (response.ok) {
-      return {
-        success: true,
-        status: "available",
-        message: "API密钥验证成功",
-      };
-    } else if (response.status === 401) {
-      return {
-        success: false,
-        status: "unavailable",
-        message: "API密钥无效，请检查后重试",
-      };
-    } else {
-      return {
-        success: false,
-        status: "unavailable",
-        message: `API调用失败 (${response.status})`,
-      };
-    }
-
-  } catch (error) {
-    console.error("智谱AI检查失败:", error);
-    return {
-      success: false,
-      status: "unavailable",
-      message: "网络错误，无法验证API密钥",
-    };
-  }
-}
-
-/**
- * 检查OpenAI可用性
- */
-async function checkOpenAIAvailability(model, apiKey) {
-  try {
-    if (!apiKey) {
-      return {
-        success: false,
-        status: "unconfigured",
-        message: "请输入OpenAI的API密钥",
-      };
-    }
-
-    const response = await fetch('https://api.openai.com/v1/models', {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      timeout: 10000,
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      const isModelAvailable = data.data?.some(m => m.id === model.modelId);
-
-      if (isModelAvailable) {
-        return {
-          success: true,
-          status: "available",
-          message: "API密钥验证成功",
-        };
-      } else {
-        return {
-          success: false,
-          status: "unavailable",
-          message: `模型 ${model.modelId} 不可用`,
-        };
-      }
-    } else if (response.status === 401) {
-      return {
-        success: false,
-        status: "unavailable",
-        message: "API密钥无效，请检查后重试",
-      };
-    } else {
-      return {
-        success: false,
-        status: "unavailable",
-        message: `API调用失败 (${response.status})`,
-      };
-    }
-
-  } catch (error) {
-    console.error("OpenAI检查失败:", error);
-    return {
-      success: false,
-      status: "unavailable",
-      message: "网络错误，无法验证API密钥",
-    };
-  }
-}
+// 注意：所有原来的提供商特定检查函数（checkOllamaAvailability, checkZhipuAvailability, checkOpenAIAvailability）
+// 现在都被LangChain统一工厂替代了，不再需要这些函数
