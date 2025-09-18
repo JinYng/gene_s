@@ -20,7 +20,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 # 导入我们的工具
-from tools import available_tools, tool_registry
+from .tools import available_tools, tool_registry
 
 # 导入统一错误处理
 try:

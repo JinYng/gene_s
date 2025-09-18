@@ -17,18 +17,18 @@ export const models = [
     base_url: null, // 将使用 config/index.js 中的 ollamaConfig
   },
   {
-    id: 'zhipu-glm4.5v',
-    name: '智谱AI',
-    provider: '智谱',
-    modelId: 'glm-4.5v',
-    description: '功能强大的在线AI模型 - 支持视觉理解',
+    id: 'custom-api',
+    name: '自定义云端模型',
+    provider: 'Custom',
+    modelId: null, // 由用户动态配置
+    description: '配置任何兼容OpenAI API的云端模型服务',
     type: 'api',
     requires_api_key: true,
-    icon: '🌟',
-    endpoint: 'https://open.bigmodel.cn/api/paas/v4',
+    icon: '⚙️',
+    endpoint: null, // 由用户动态配置
     // LangChain 集成配置
-    is_openai_compatible: true, // 智谱AI v4 提供了 OpenAI 兼容端点
-    base_url: 'https://open.bigmodel.cn/api/paas/v4/',
+    is_openai_compatible: true, // 支持OpenAI兼容的API
+    base_url: null, // 由用户动态配置
   },
   {
     id: 'openai-gpt4',
@@ -108,4 +108,5 @@ export const STORAGE_KEYS = {
   SELECTED_MODEL: 'gene_s_selected_model',
   API_KEYS: 'gene_s_api_keys',
   MODEL_STATUSES: 'gene_s_model_statuses',
+  CUSTOM_CONFIG: 'gene_s_custom_config', // 新增：自定义模型配置
 };

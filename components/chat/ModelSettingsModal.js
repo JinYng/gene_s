@@ -1,5 +1,5 @@
 // components/chat/ModelSettingsModal.js
-// 模型设置弹窗 - 纯UI组件，类似Google AI Studio风格
+// 模型设置弹窗 - 纯UI组件，类似Google AI Studio风格 没有被使用
 
 import React, { useState, useEffect } from "react";
 import { MODEL_STATUS } from "../../config/models.js";

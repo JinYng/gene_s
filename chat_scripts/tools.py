@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any, Union
 from langchain.tools import tool
 
 # 导入单细胞处理器
-from single_cell_processor import OptimizedSingleCellProcessor
+from .single_cell_processor import OptimizedSingleCellProcessor
 
 
 @tool

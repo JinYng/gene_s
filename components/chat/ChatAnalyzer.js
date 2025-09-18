@@ -4,7 +4,9 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import ModernUnifiedChat from "./ModernUnifiedChat";
 import VisualizationPanel from "./VisualizationPanel";
 import AIModelManager from "./AIModelManager";
-import { chatService } from "../../services/chatService";
+import { STORAGE_KEYS } from "../../config/models.js";
+// 移除不再使用的 chatService
+// import { chatService } from "../../services/chatService";
 import {
   presetStyles,
   colors,
@@ -19,7 +21,6 @@ import {
 const ChatAnalyzer = () => {
   const [isClient, setIsClient] = useState(false);
 
-  // 确保只在客户端生成唯一ID
   const [sessionId] = useState(() => {
     if (typeof window !== "undefined") {
       return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -36,118 +37,130 @@ const ChatAnalyzer = () => {
     },
   ]);
 
-  // 可视化数据状态
   const [visualizationData, setVisualizationData] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [currentDataFile, setCurrentDataFile] = useState(null);
   const [currentAIService, setCurrentAIService] = useState(null);
-  // const [showServiceSelector, setShowServiceSelector] = useState(false); // 移除不再使用的状态
-  // const [activeTab, setActiveTab] = useState("chat"); // 移除标签页控制
+  const [customConfig, setCustomConfig] = useState({});
+  const [apiKeys, setApiKeys] = useState({}); // 新增：管理API密钥的状态
 
   // 初始化客户端和AI模型
   useEffect(() => {
     setIsClient(true);
     const initAIService = async () => {
       try {
-        // 使用新的模型配置系统初始化
-        const { getModelById, DEFAULT_MODEL_ID, STORAGE_KEYS } = await import("../../config/models.js");
+        const { getModelById, DEFAULT_MODEL_ID } = await import(
+          "../../config/models.js"
+        );
 
-        // 从localStorage获取保存的模型ID，或使用默认模型
-        const savedModelId = localStorage.getItem(STORAGE_KEYS.SELECTED_MODEL) || DEFAULT_MODEL_ID;
+        const savedModelId =
+          localStorage.getItem(STORAGE_KEYS.SELECTED_MODEL) || DEFAULT_MODEL_ID;
         const model = getModelById(savedModelId);
-
         setCurrentAIService(model);
-        console.log(`初始化AI模型: ${model.name} (${model.modelId})`);
+
+        // 加载自定义配置
+        const savedCustomConfig = localStorage.getItem(
+          STORAGE_KEYS.CUSTOM_CONFIG
+        );
+        if (savedCustomConfig) setCustomConfig(JSON.parse(savedCustomConfig));
+
+        // 新增：加载API密钥
+        const savedApiKeys = localStorage.getItem(STORAGE_KEYS.API_KEYS);
+        if (savedApiKeys) setApiKeys(JSON.parse(savedApiKeys));
+
+        console.log(`初始化AI模型: ${model.name}`);
       } catch (error) {
         console.error("初始化AI模型失败:", error);
-        // 设置一个默认的模型结构以防万一
         setCurrentAIService({
-          id: 'ollama-gemma',
-          name: 'Ollama 本地模型',
-          provider: 'Ollama',
-          modelId: 'gemma3:4b'
+          id: "ollama-gemma",
+          name: "Ollama 本地模型",
+          provider: "Ollama",
+          modelId: "gemma3:4b",
         });
       }
     };
-
     initAIService();
   }, []);
 
+  // 将所有API调用逻辑统一到一个函数中
+  const sendApiRequest = async (messageText, files = []) => {
+    const formData = new FormData();
+    formData.append("message", messageText);
+    formData.append("sessionId", sessionId);
+    formData.append("useWorkflow", String(files.length > 0));
+
+    files.forEach((file) => {
+      if (file instanceof File) {
+        formData.append(`files`, file);
+      }
+    });
+
+    // --- 关键修复：统一构建并添加模型配置信息 ---
+    if (currentAIService) {
+      const modelPayload = {
+        id: currentAIService.id,
+        provider: currentAIService.provider,
+        config: currentAIService.id === "custom-api" ? customConfig : null,
+        apiKey: apiKeys[currentAIService.id] || null,
+      };
+      formData.append("modelPayload", JSON.stringify(modelPayload));
+      console.log("🤖 发送模型配置:", modelPayload);
+    } else {
+      console.error("❌ 未能发送模型配置，因为 currentAIService 未设置!");
+    }
+
+    const response = await fetch("/api/chat-ollama", {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(
+        errorData.message || `API请求失败，状态码: ${response.status}`
+      );
+    }
+    return response.json();
+  };
+
   // 处理消息发送
   const handleSendMessage = async (message, files = []) => {
-    // 处理消息内容，支持字符串或对象格式
-    let messageText = "";
-    let messageFiles = files; // 直接使用传入的 files 参数，这是原始的 File 对象数组
+    let messageText =
+      typeof message === "object" && message !== null
+        ? message.text || ""
+        : message;
+    if (!messageText.trim() && files.length === 0) return;
+    if (!isClient) return;
 
-    if (typeof message === "object" && message !== null) {
-      messageText = message.text || "";
-      // 注意：不要从 message.files 中提取文件，因为那只是元信息
-      // messageFiles = message.files || files; // ❌ 错误的做法
-    } else if (typeof message === "string") {
-      messageText = message;
-    }
-
-    if (!messageText.trim() && messageFiles.length === 0) return;
-    if (!isClient) return; // 确保在客户端运行
-
-    // 添加调试日志
-    if (messageFiles.length > 0) {
-      console.log('📄 ChatAnalyzer 收到文件:', messageFiles.map(f => ({
-        name: f.name,
-        size: f.size,
-        constructor: f.constructor.name,
-        isFileObject: f instanceof File
-      })));
-    }
-
-    // 创建用户消息对象 - 支持文件信息显示（使用元信息）
     const userMessage = {
       id: Date.now(),
       type: "user",
-      content: messageFiles.length > 0
-        ? {
-            text: messageText,
-            files: messageFiles.map((f) => ({
-              name: f.name,
-              size: f.size,
-              type: f.type,
-            })),
-          }
-        : messageText,
+      content:
+        files.length > 0
+          ? {
+              text: messageText,
+              files: files.map((f) => ({
+                name: f.name,
+                size: f.size,
+                type: f.type,
+              })),
+            }
+          : messageText,
       timestamp: new Date(),
     };
 
-    // 立即添加用户消息到界面
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
 
     try {
-      let response;
-
-      // 根据是否有文件选择不同的处理方式
-      if (messageFiles.length > 0) {
-        // 有文件：使用文件上传API，传递原始的 File 对象数组
-        console.log(`🤖 上传${messageFiles.length}个文件并分析`);
-        response = await uploadFilesAndAnalyze(messageFiles, messageText, sessionId);
-      } else {
-        // 纯文本：使用标准聊天API
-        const useEnhanced = chatService.shouldUseEnhancedWorkflow(message, files);
-        console.log(`🤖 消息处理: 使用${useEnhanced ? "增强工作流" : "标准模式"}`);
-
-        response = useEnhanced
-          ? await chatService.sendEnhancedWorkflowMessage(message, files, sessionId)
-          : await chatService.sendMessage(message, files, sessionId);
-      }
-
-      // 处理响应（统一的响应处理逻辑）
+      const response = await sendApiRequest(messageText, files);
       handleApiResponse(response);
-
     } catch (error) {
       console.error("发送消息失败:", error);
       const errorMessage = {
         id: Date.now(),
         type: "assistant",
-        content: `抱歉，处理您的请求时出现了错误：${error.message}\n\n请稍后重试或检查您的输入。`,
+        content: `抱歉，处理您的请求时出现了错误：${error.message}`,
         timestamp: new Date(),
         isError: true,
       };
@@ -157,152 +170,45 @@ const ChatAnalyzer = () => {
     }
   };
 
-  // 文件上传和分析函数
-  const uploadFilesAndAnalyze = async (files, message, sessionId) => {
-    console.log('🔍 uploadFilesAndAnalyze 开始处理文件:', files.map(f => ({
-      name: f.name,
-      size: f.size,
-      constructor: f.constructor.name,
-      isFile: f instanceof File
-    })));
-
-    const formData = new FormData();
-
-    // 添加消息文本和会话信息
-    formData.append('message', message);
-    formData.append('sessionId', sessionId);
-    formData.append('useWorkflow', 'true'); // 启用工作流分析
-
-    // 添加所有文件
-    files.forEach((file, index) => {
-      if (file instanceof File) {
-        formData.append(`files`, file);
-        console.log(`✅ 添加文件 ${index + 1}: ${file.name} (${file.size} bytes) - 是真实 File 对象`);
-      } else {
-        console.error(`❌ 文件 ${index + 1} 不是 File 对象:`, file);
-      }
-    });
-
-    // 调试：查看FormData中的内容
-    console.log('📦 FormData 内容:');
-    for (let [key, value] of formData.entries()) {
-      if (key === 'files') {
-        console.log(`  ${key}:`, value instanceof File ? `File(${value.name}, ${value.size} bytes)` : value);
-      } else {
-        console.log(`  ${key}:`, value);
-      }
-    }
-
-    // 使用fetch发送请求
-    const response = await fetch('/api/chat-ollama', {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      throw new Error(`Upload failed with status: ${response.status}`);
-    }
-
-    return await response.json();
-  };
-
   // 统一的API响应处理函数
   const handleApiResponse = (response) => {
-    if (response.responses) {
+    if (response && response.responses) {
       response.responses.forEach((res, index) => {
         setTimeout(() => {
-          // 确保content是字符串而不是对象
           let content = res.content;
           if (typeof content !== "string") {
-            if (content && typeof content === "object") {
-              // 如果content是对象，尝试提取有用的信息
-              if (content.message) {
-                content = content.message;
-              } else if (content.data) {
-                content = JSON.stringify(content.data, null, 2);
-              } else {
-                content = JSON.stringify(content, null, 2);
-              }
-            } else {
-              content = String(content);
-            }
+            content = JSON.stringify(content, null, 2);
           }
-
           const assistantMessage = {
             id: Date.now() + index,
             type: "assistant",
             content: content,
             responseType: res.type,
             timestamp: new Date(),
-            aiService: response.aiService, // 添加AI服务信息
-            workflowUsed: response.workflowUsed, // 添加工作流信息
+            aiService: response.aiService,
+            workflowUsed: response.workflowUsed,
           };
-
           setMessages((prev) => [...prev, assistantMessage]);
 
-          // 处理不同类型的响应
-          if (res.type === "plot_data") {
-            setVisualizationData(res.content);
-          } else if (res.type === "file_uploaded") {
-            // 处理文件上传响应
-            if (res.files && res.files.length > 0) {
-              setCurrentDataFile({
-                name: res.files[0].name,
-                files: res.files,
-              });
-            }
-          } else if (res.type === "file_info") {
-            // 处理文件信息响应
-            if (res.files && res.files.length > 0) {
-              setCurrentDataFile({
-                name: res.files[0].name,
-                files: res.files,
-              });
-            }
-          } else if (
-            res.type === "deckgl_visualization" &&
-            res.visualizationData
-          ) {
+          if (res.type === "deckgl_visualization" && res.visualizationData) {
             setVisualizationData(res.visualizationData);
+          } else if (res.type === "file_uploaded" && res.files?.length > 0) {
+            setCurrentDataFile({ name: res.files[0].name, files: res.files });
           }
-        }, index * 500); // 逐条显示消息，模拟对话感
+        }, index * 100);
       });
     } else {
-      // 处理没有responses字段的情况
-      let content = "";
-      if (response.message) {
-        content = response.message;
-      } else if (response.data) {
-        content = JSON.stringify(response.data, null, 2);
-      } else {
-        content = "收到响应，但没有具体内容。";
-      }
-
-      const assistantMessage = {
+      const errorMessage = {
         id: Date.now(),
         type: "assistant",
-        content: content,
+        content: "收到一个无法解析的响应。",
         timestamp: new Date(),
+        isError: true,
       };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+      setMessages((prev) => [...prev, errorMessage]);
     }
   };
 
-  // 添加一个专门用于从ModernUnifiedChat立即显示用户消息的函数
-  const addUserMessage = (userMessage) => {
-    setMessages((prev) => [...prev, userMessage]);
-  };
-
-  // 增强handleSendMessage函数，支持立即显示用户消息
-  const enhancedHandleSendMessage = (message, files = []) => {
-    return handleSendMessage(message, files);
-  };
-
-  // 为ModernUnifiedChat提供addUserMessage方法
-  enhancedHandleSendMessage.addUserMessage = addUserMessage;
-
-  // 清空对话
   const handleClearChat = () => {
     if (!isClient) return;
     setMessages([
@@ -317,77 +223,83 @@ const ChatAnalyzer = () => {
     setCurrentDataFile(null);
   };
 
-  // 使用ref跟踪上一次的模型ID，避免重复触发
-  const lastModelIdRef = useRef(null);
+  // 统一的模型配置变更回调函数
+  const handleModelConfigChange = useCallback(
+    (newModel, newCustomConfig = null) => {
+      if (!isClient) return;
 
-  // 处理AI服务/模型切换 - 使用useCallback防止每次渲染都创建新函数
-  const handleServiceChange = useCallback((newModel) => {
-    if (!isClient) return;
+      setCurrentAIService(newModel);
+      localStorage.setItem(STORAGE_KEYS.SELECTED_MODEL, newModel.id);
 
-    // 防止重复切换到相同模型
-    if (lastModelIdRef.current === newModel.id) {
-      console.log(`🔄 跳过重复切换，当前已是模型: ${newModel.name}`);
-      return;
-    }
+      if (newCustomConfig) {
+        setCustomConfig(newCustomConfig);
+        localStorage.setItem(
+          STORAGE_KEYS.CUSTOM_CONFIG,
+          JSON.stringify(newCustomConfig)
+        );
+      }
 
-    lastModelIdRef.current = newModel.id;
-    setCurrentAIService(newModel);
-    console.log(`已切换到AI模型: ${newModel.name} (${newModel.modelId})`);
+      // 更新API密钥状态（如果适用）
+      if (newModel.requires_api_key && newCustomConfig?.apiKey) {
+        setApiKeys((prev) => ({
+          ...prev,
+          [newModel.id]: newCustomConfig.apiKey,
+        }));
+        // 注意：API密钥的保存由AIModelManager负责
+      }
 
-    // 只有在真正切换模型时才显示消息
-    const switchMessage = {
-      id: Date.now(),
-      type: "assistant",
-      content: `🤖 已切换到 ${newModel.name} (${newModel.modelId})\n\n现在可以继续进行对话和数据分析。`,
-      timestamp: new Date(),
-      aiService: {
-        provider: newModel.provider,
-        model: newModel.modelId,
-        name: newModel.name,
-      },
-    };
-
-    setMessages((prev) => [...prev, switchMessage]);
-  }, [isClient]);
+      const modelDisplayName =
+        newModel.id === "custom-api"
+          ? newCustomConfig?.name || newModel.name
+          : newModel.name;
+      const systemMessage = {
+        id: `sys_${Date.now()}`,
+        type: "system",
+        content: `🤖 已切换到 ${modelDisplayName}`,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, systemMessage]);
+      console.log(`已切换到AI模型: ${modelDisplayName}`);
+    },
+    [isClient]
+  );
 
   return (
     <div style={presetStyles.chat.analyzer}>
-      {/* 左侧聊天面板 */}
       <div style={presetStyles.chat.panel}>
-        {/* AI模型管理器 */}
-        <div style={{
-          padding: `${spacing.base} ${spacing.md}`,
-          backgroundColor: colors.background.tertiary,
-          borderBottom: `1px solid ${colors.border.secondary}`,
-        }}>
+        <div
+          style={{
+            padding: `${spacing.base} ${spacing.md}`,
+            backgroundColor: colors.background.tertiary,
+            borderBottom: `1px solid ${colors.border.secondary}`,
+          }}
+        >
           <AIModelManager
-            onModelChange={handleServiceChange}
-            currentModelId={currentAIService?.id}
+            activeModel={currentAIService}
+            activeCustomConfig={customConfig}
+            onConfigChange={handleModelConfigChange}
           />
         </div>
-
-        {/* 聊天内容 */}
         <div
           style={{
             flex: 1,
             display: "flex",
             flexDirection: "column",
-            minHeight: 0, // 重要：允许flex子项缩小
+            minHeight: 0,
           }}
         >
-          {/* 聊天头部 */}
           <div style={presetStyles.chat.header}>
             <div style={presetStyles.utils.spaceBetween}>
               <div>
                 <h3
                   style={{
                     ...titleStyles.chatTitle,
-                    display: "block",
-                    visibility: "visible",
-                    margin: `${spacing.base} 0 ${spacing.xs} 0`,
-                    color: colors.text.primary,
-                    fontSize: fontSize.lg,
-                    fontWeight: "600",
+                    ...{
+                      margin: `${spacing.base} 0 ${spacing.xs} 0`,
+                      color: colors.text.primary,
+                      fontSize: fontSize.lg,
+                      fontWeight: "600",
+                    },
                   }}
                 >
                   💬 AI对话分析
@@ -408,7 +320,6 @@ const ChatAnalyzer = () => {
                   </div>
                 )}
               </div>
-
               <button
                 onClick={handleClearChat}
                 {...createHoverStyles(buttonStyles.clear, {
@@ -419,8 +330,6 @@ const ChatAnalyzer = () => {
               </button>
             </div>
           </div>
-
-          {/* 聊天面板 */}
           <div
             style={{
               flex: 1,
@@ -431,15 +340,13 @@ const ChatAnalyzer = () => {
           >
             <ModernUnifiedChat
               messages={messages}
-              onSendMessage={enhancedHandleSendMessage}
+              onSendMessage={handleSendMessage}
               isLoading={isLoading}
               height="100%"
             />
           </div>
         </div>
       </div>
-
-      {/* 右侧可视化面板 */}
       <div style={presetStyles.chat.visualizationPanel}>
         <VisualizationPanel
           data={visualizationData}

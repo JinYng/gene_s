@@ -4,7 +4,7 @@
 import { ErrorHandler, createError } from "../../lib/errorHandler.js";
 import { getConfig } from "../../config/index.js";
 import { getModelById } from "../../config/models.js";
-import { createChatModel, validateModel } from "../../lib/llmFactory.js";
+import { createChatModel } from "../../lib/llmFactory.js";
 import { HumanMessage } from "@langchain/core/messages";
 
 export default async function handler(req, res) {
@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { modelId, apiKey } = req.body;
+    const { modelId, apiKey, customConfig } = req.body;
 
     // 验证请求参数
     if (!modelId) {
@@ -41,8 +41,40 @@ export default async function handler(req, res) {
     try {
       console.log(`🏭 使用LangChain工厂创建模型: ${modelConfig.provider}`);
 
-      // 使用工厂创建模型实例
-      const model = createChatModel(modelConfig, apiKey);
+      let model;
+
+      // 如果是自定义模型，需要特殊处理
+      if (modelConfig.provider === 'Custom') {
+        if (!customConfig || !customConfig.baseUrl || !customConfig.apiKey || !customConfig.model) {
+          return res.status(400).json({
+            success: false,
+            status: "unconfigured",
+            message: "自定义模型配置信息不完整",
+            suggestion: "请填写完整的配置信息（名称、Base URL、API密钥、模型标识）",
+          });
+        }
+
+        // 构建完整的modelPayload对象
+        const modelPayload = {
+          id: modelConfig.id,
+          provider: modelConfig.provider,
+          config: customConfig
+        };
+
+        console.log('🤖 验证自定义模型配置:', modelPayload);
+        model = createChatModel(modelPayload);
+      } else {
+        // 构建预定义模型的modelPayload对象
+        const modelPayload = {
+          id: modelConfig.id,
+          provider: modelConfig.provider,
+          apiKey: apiKey,
+          config: null
+        };
+
+        console.log('🤖 验证预定义模型:', modelPayload);
+        model = createChatModel(modelPayload);
+      }
 
       // 发送一个简短的测试消息来验证连接
       console.log(`🧪 发送测试消息验证模型...`);

@@ -53,9 +53,34 @@ export default async function handler(req, res) {
     const sessionId = fields.sessionId?.[0] || `enhanced_session_${Date.now()}`;
     const useWorkflow = fields.useWorkflow?.[0] === "true";
 
-    // 新增：从前端获取模型配置
-    const selectedModelId = fields.selectedModelId?.[0] || 'ollama-gemma';
-    const apiKey = fields.apiKey?.[0]; // 从前端获取API密钥
+    // 新的模型配置处理逻辑
+    const modelPayloadString = fields.modelPayload?.[0];
+    let modelPayload;
+
+    if (modelPayloadString) {
+      try {
+        modelPayload = JSON.parse(modelPayloadString);
+        console.log('🤖 接收到模型配置:', modelPayload);
+      } catch (error) {
+        console.error('解析模型配置失败:', error);
+        return res.status(400).json({
+          success: false,
+          message: "无效的模型配置格式"
+        });
+      }
+    } else {
+      // 向后兼容：如果没有modelPayload，使用旧的逻辑
+      const selectedModelId = fields.selectedModelId?.[0] || 'ollama-gemma';
+      const apiKey = fields.apiKey?.[0];
+
+      modelPayload = {
+        id: selectedModelId,
+        provider: getModelById(selectedModelId)?.provider || 'Ollama',
+        config: null
+      };
+
+      console.log('🔄 使用向后兼容的模型配置:', modelPayload);
+    }
 
     // 处理上传的文件
     uploadedFiles = Object.values(files).flat().filter(Boolean);
@@ -63,7 +88,7 @@ export default async function handler(req, res) {
     console.log(`\n🚀 处理开始:`);
     console.log(`📝 消息: ${message}`);
     console.log(`🆔 会话: ${sessionId}`);
-    console.log(`🤖 选择模型: ${selectedModelId}`);
+    console.log(`🤖 选择模型: ${modelPayload.id} (${modelPayload.provider})`);
     console.log(`📁 文件: ${uploadedFiles.length}个`);
     console.log(`⚙️ 使用工作流: ${useWorkflow}`);
 
@@ -225,12 +250,9 @@ export default async function handler(req, res) {
       console.log("💬 执行LangChain统一聊天模式...");
 
       try {
-        // 1. 获取模型配置
-        const currentModel = getModelById(selectedModelId);
-        console.log(`🤖 使用模型: ${currentModel.name} (${currentModel.provider})`);
-
-        // 2. 使用工厂创建模型实例
-        const chatModel = createChatModel(currentModel, apiKey);
+        // 1. 使用工厂创建模型实例 - 传递新的modelPayload
+        console.log(`🤖 使用模型: ${modelPayload.id} (${modelPayload.provider})`);
+        const chatModel = createChatModel(modelPayload);
 
         // 3. 构建标准化的对话历史 (HumanMessage, AIMessage)
         const chatHistory = session.messages.slice(-5).map(msg => {
@@ -265,7 +287,7 @@ export default async function handler(req, res) {
         chatHistory.push(new HumanMessage(enhancedMessage));
 
         // 5. 调用模型 (所有模型都使用统一的 .invoke() 方法!)
-        console.log(`🚀 调用${currentModel.provider}模型...`);
+        console.log(`🚀 调用${modelPayload.provider}模型...`);
         const result = await chatModel.invoke(chatHistory);
 
         // 6. 格式化标准响应
@@ -276,7 +298,7 @@ export default async function handler(req, res) {
 
         responses.push(...finalResponses);
 
-        console.log(`✅ ${currentModel.provider}模型响应成功`);
+        console.log(`✅ ${modelPayload.provider}模型响应成功`);
 
       } catch (chatError) {
         console.error("LangChain聊天模式失败:", chatError);
@@ -300,7 +322,7 @@ export default async function handler(req, res) {
           type: "error",
           content: `${errorMessage}: ${chatError.message}${suggestion ? `\n\n💡 ${suggestion}` : ''}`,
           errorDetails: {
-            provider: selectedModelId,
+            provider: modelPayload.provider,
             originalError: chatError.message
           }
         });
@@ -320,13 +342,10 @@ export default async function handler(req, res) {
     const processingTime = Date.now() - startTime;
     console.log(`✅ 处理完成，耗时: ${processingTime}ms`);
 
-    // 获取当前使用的模型信息
-    const currentModel = getModelById(selectedModelId);
-
     // 返回响应
     res.status(200).json({
       responses,
-      aiService: `${currentModel.name} (${currentModel.modelId})`,
+      aiService: `${modelPayload.id} (${modelPayload.provider})`,
       sessionId,
       processingTime,
       workflowUsed: useWorkflow,

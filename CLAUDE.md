@@ -514,7 +514,7 @@ const analysisKeywords = ["分析", "降维", "聚类", "可视化"];
 **支持的提供商**:
 
 - **Ollama**: 检查服务状态和模型下载情况
-- **智谱AI**: API密钥验证和模型访问测试
+- **自定义云端模型**: 动态配置验证，支持任何OpenAI兼容API
 - **OpenAI**: API密钥和模型权限验证
 
 **验证流程**:
@@ -523,8 +523,8 @@ const analysisKeywords = ["分析", "降维", "聚类", "可视化"];
 switch (model.provider) {
   case 'Ollama':
     return await checkOllamaAvailability(model);
-  case '智谱':
-    return await checkZhipuAvailability(model, apiKey);
+  case 'Custom':
+    return await checkGenericOpenAICompatibility(customConfig);
   case 'OpenAI':
     return await checkOpenAIAvailability(model, apiKey);
 }
@@ -841,6 +841,151 @@ ollama pull gemma3:4b
 - **详细进度反馈**: 实时显示分析进展和中间结果
 - **错误友好提示**: 更清晰的错误信息和解决建议
 
+### **v2.3 AI模型管理系统重构 - Google AI Studio风格界面 (当前版本)**
+
+**核心改进**: 修复状态同步Bug，废弃Modal弹窗，实现Google AI Studio风格的非侵入式Popover界面
+
+#### **🎯 核心目标达成**
+
+1. **状态同步Bug修复**: 完全解决了AIModelManager组件更新后父组件ChatAnalyzer无法及时获取完整配置信息的问题
+2. **UI/UX革命性升级**: 从打断式Modal改为流畅的Popover交互，显著提升用户体验
+3. **架构优化**: 建立"单一数据源"原则，ChatAnalyzer成为模型配置的唯一权威来源
+
+#### **🏗️ 架构重新设计**
+
+**新的数据流架构**:
+```
+ChatAnalyzer (数据权威) ──→ AIModelManager (展示交互)
+     ↑                              ↓
+     └─── onConfigChange 回调 ──────┘
+```
+
+#### **💻 前端核心重构**
+
+1. **`ChatAnalyzer.js` - 数据权威建立**:
+   - **新增核心状态**: `customConfig` 对象管理自定义模型配置
+   - **统一回调函数**: `handleModelConfigChange(newModel, newCustomConfig)`
+   - **自动状态同步**: 初始化时从localStorage加载自定义配置
+   - **完整模型配置传递**: API请求中包含完整的`modelPayload`对象
+   - **Props重新设计**: 传递`activeModel`、`activeCustomConfig`、`onConfigChange`
+
+2. **`AIModelManager.js` - Google AI Studio风格重写**:
+   - **移除Modal依赖**: 完全删除ModelSettingsModal.js文件
+   - **Popover界面**: 非侵入式浮层设计，保持工作流连续性
+   - **双区域布局**:
+     - 区域一：模型快速切换 (一键切换Ollama等)
+     - 区域二：自定义配置表单 (四字段完整配置)
+   - **智能交互逻辑**:
+     - 快速切换：立即生效并关闭面板
+     - 自定义配置：验证成功后1.5秒自动关闭
+   - **状态管理优化**: 本地状态仅用于临时编辑，不影响全局状态
+
+#### **⚡ 后端API适配**
+
+3. **`pages/api/chat-ollama.js` - ModelPayload支持**:
+   - **新参数解析**: 从`fields.modelPayload`获取完整模型配置
+   - **向后兼容**: 支持旧的`selectedModelId`和`apiKey`参数格式
+   - **统一模型配置**: 使用标准化的`modelPayload`对象格式
+   - **日志优化**: 详细记录模型配置信息便于调试
+
+4. **`lib/llmFactory.js` - 工厂函数简化**:
+   - **函数签名统一**: `createChatModel(modelPayload)` - 只接收单一参数
+   - **智能配置处理**: 自动区分自定义模型和预定义模型
+   - **API密钥智能获取**: 从localStorage自动获取预定义模型密钥
+   - **错误处理优化**: 更清晰的错误消息和调试信息
+
+#### **🎨 UI/UX设计亮点**
+
+**Google AI Studio风格元素**:
+- **主按钮设计**: 简洁专业的模型状态显示
+- **Popover布局**: 圆角卡片，优雅阴影，现代化视觉
+- **状态指示**: 彩色圆点实时显示模型可用状态
+- **智能表单**: 条件渲染，实时验证，平滑动画
+- **操作反馈**: 验证进度、成功提示、错误指导
+
+**交互流程优化**:
+```
+用户点击 → Popover展开 → 选择模型 → 立即生效
+                    ↓
+              自定义配置 → 填写表单 → 验证成功 → 自动关闭
+```
+
+#### **🔧 技术特性**
+
+- **零状态冲突**: 父子组件状态完全同步，无数据不一致
+- **模块化设计**: 组件职责清晰分离，易于维护和测试
+- **类型安全**: 完整的配置验证和错误处理机制
+- **性能优化**: useCallback、条件渲染等React最佳实践
+- **用户体验**: 配置持久化、实时反馈、错误友好
+
+#### **🚀 用户价值**
+
+- **无缝切换**: 模型切换不再打断工作流，提升效率
+- **配置直观**: 四字段表单清晰明了，降低配置门槛
+- **状态可见**: 模型状态一目了然，减少困惑
+- **错误友好**: 详细的错误提示和解决建议
+- **专业体验**: 媲美Google AI Studio的专业级界面
+
+### **v2.2 云端API模型通用化重构 (历史版本)**
+
+**核心改进**: 将固定的"智谱AI"配置改造为通用的"自定义云端模型"系统，支持任何兼容OpenAI API的服务
+
+#### **🔧 模型配置系统重构**
+
+1. **`config/models.js` - 通用化配置**:
+   - 移除固定的智谱AI配置
+   - 新增 `custom-api` 通用模型配置
+   - **Provider类型**: 'Custom' - 支持用户自定义配置
+   - **OpenAI兼容**: 默认支持所有OpenAI兼容的API服务
+   - **动态字段**: `modelId`、`endpoint`、`base_url` 均由用户配置
+   - 新增 `CUSTOM_CONFIG` 本地存储键
+
+#### **🎛️ 前端UI系统升级**
+
+2. **`AIModelManager.js` - 自定义配置状态管理**:
+   - **新增状态**: `customConfig` 对象管理所有自定义字段
+   - **localStorage集成**: 自动保存和恢复自定义模型配置
+   - **验证函数扩展**: `handleSaveAndVerifyCustomConfig()` 专门处理自定义配置
+   - **显示逻辑优化**: 动态显示用户配置的模型名称和标识
+
+3. **`ModelSettingsModal.js` - 自定义配置界面**:
+   - **四字段配置**: 显示名称、Base URL、API密钥、模型标识
+   - **条件渲染**: `showCustomConfigSection` 智能显示配置区域
+   - **实时验证**: 输入变化时清除验证消息，提供即时反馈
+   - **统一样式**: 复用现有API配置区域的设计语言
+
+#### **⚡ 后端验证系统增强**
+
+4. **`check-model-availability.js` - 动态配置验证**:
+   - **参数扩展**: 新增 `customConfig` 参数支持
+   - **Custom Provider处理**: 专门的自定义模型验证逻辑
+   - **完整性检查**: 验证baseUrl、apiKey、model字段完整性
+   - **错误提示优化**: 针对自定义配置的专门错误提示
+
+#### **🏭 模型工厂核心升级**
+
+5. **`lib/llmFactory.js` - 自定义配置支持**:
+   - **函数签名更新**: `createChatModel(modelConfig, apiKey, customConfig)`
+   - **Custom Provider分支**: 专门处理自定义模型创建逻辑
+   - **配置验证**: 严格的customConfig字段验证
+   - **OpenAI兼容实现**: 自定义模型默认使用ChatOpenAI类
+   - **提供商列表更新**: 支持的提供商新增'Custom'
+
+#### **🔄 用户体验提升**
+
+- **无缝迁移**: 现有智谱AI用户可平滑迁移到自定义配置
+- **多服务支持**: 支持智谱AI、DeepSeek、月之暗面等所有OpenAI兼容服务
+- **配置持久化**: 用户配置自动保存，跨会话保持
+- **实时验证**: 配置修改后立即验证连接有效性
+- **错误友好**: 详细的配置指导和错误提示
+
+#### **🚀 技术亮点**
+
+- **完全向后兼容**: 不影响Ollama等其他模型提供商
+- **类型安全**: 完整的配置验证和错误处理
+- **模块化设计**: 各层独立，易于维护和扩展
+- **用户中心**: 以用户配置为核心的设计理念
+
 ### **v2.0 重大重构 (历史版本)**
 
 1. **AI模型管理系统重构**:
@@ -865,7 +1010,7 @@ ollama pull gemma3:4b
 
 ---
 
-**文档版本**: v2.1.0
-**最后更新**: 2025年9月17日
+**文档版本**: v2.3.0
+**最后更新**: 2025年9月18日
 
 此文档作为项目的"单一信息源"，所有架构决策和技术实现均应以此为准。
