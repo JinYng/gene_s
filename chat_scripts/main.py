@@ -22,7 +22,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 # 导入我们的Agent执行器
-from agent_executor import run_analysis
+from .agent_executor import run_analysis
 
 app = FastAPI(title="Single Cell Analysis API", description="基于LangChain Agent的单细胞分析API服务")
 
